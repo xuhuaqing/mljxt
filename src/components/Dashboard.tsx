@@ -1,5 +1,7 @@
 import { LogOut } from 'lucide-react';
 import { UserRole } from '../lib/supabase';
+import DeveloperWorkbench from './DeveloperWorkbench';
+import MerchantWorkbench from './MerchantWorkbench';
 import TeacherWorkbench from './TeacherWorkbench';
 import UserOrderCenter from './UserOrderCenter';
 
@@ -28,7 +30,9 @@ export default function Dashboard({ role, onLogout }: DashboardProps) {
       <div className="flex-1 px-4 py-4 flex flex-col">
         {role === 'user' && <UserOrderCenter />}
         {role === 'teacher' && <TeacherWorkbench />}
-        {role !== 'user' && role !== 'teacher' && (
+        {role === 'merchant' && <MerchantWorkbench />}
+        {role === 'developer' && <DeveloperWorkbench />}
+        {role !== 'user' && role !== 'teacher' && role !== 'merchant' && role !== 'developer' && (
           <div className="flex-1 flex flex-col items-center justify-center">
             <p className="text-gray-500 text-center text-sm mb-8">
               当前身份页面正在建设中

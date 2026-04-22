@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   bindTeacherDevice,
   createTeacherOrder,
+  getTeacherDeviceUsageLogs,
   getMerchantsAndDevices,
   getProjectCategories,
   getTeacherBindings,
@@ -9,6 +10,7 @@ import {
   ProjectCategory,
   TeacherBinding,
   TeacherOrderPayload,
+  UsageRecord,
 } from '../lib/api';
 
 type TeacherTab = 'order' | 'bind' | 'bound';
@@ -24,14 +26,16 @@ const defaultOrderForm: Omit<TeacherOrderPayload, 'merchantId' | 'projectName'> 
 
 export default function TeacherWorkbench() {
   const orderMerchantDropdownRef = useRef<HTMLDivElement | null>(null);
+  const bindMerchantDropdownRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<TeacherTab>('order');
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([]);
   const [bindings, setBindings] = useState<TeacherBinding[]>([]);
 
-  const [merchantKeyword, setMerchantKeyword] = useState('');
   const [orderMerchantKeyword, setOrderMerchantKeyword] = useState('');
   const [showOrderMerchantDropdown, setShowOrderMerchantDropdown] = useState(false);
+  const [bindMerchantKeyword, setBindMerchantKeyword] = useState('');
+  const [showBindMerchantDropdown, setShowBindMerchantDropdown] = useState(false);
   const [orderMerchantId, setOrderMerchantId] = useState('');
   const [bindMerchantId, setBindMerchantId] = useState('');
   const [bindDeviceId, setBindDeviceId] = useState('');
@@ -40,17 +44,20 @@ export default function TeacherWorkbench() {
   const [orderForm, setOrderForm] = useState(defaultOrderForm);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [activeBindingId, setActiveBindingId] = useState('');
+  const [usageLogsByDevice, setUsageLogsByDevice] = useState<Record<string, UsageRecord[]>>({});
+  const [usageLogsLoadingDeviceId, setUsageLogsLoadingDeviceId] = useState('');
 
-  const filteredMerchants = useMemo(() => {
-    const keyword = merchantKeyword.trim();
-    if (!keyword) return merchants;
-    return merchants.filter((item) => item.name.includes(keyword));
-  }, [merchants, merchantKeyword]);
   const filteredOrderMerchants = useMemo(() => {
     const keyword = orderMerchantKeyword.trim();
     if (!keyword) return merchants;
     return merchants.filter((item) => item.name.includes(keyword));
   }, [merchants, orderMerchantKeyword]);
+  const filteredBindMerchants = useMemo(() => {
+    const keyword = bindMerchantKeyword.trim();
+    if (!keyword) return merchants;
+    return merchants.filter((item) => item.name.includes(keyword));
+  }, [merchants, bindMerchantKeyword]);
 
   const bindSelectedMerchant = useMemo(
     () => merchants.find((item) => item.id === bindMerchantId),
@@ -59,6 +66,10 @@ export default function TeacherWorkbench() {
   const selectedOrderMerchantName = useMemo(
     () => merchants.find((item) => item.id === orderMerchantId)?.name || '请选择商家',
     [merchants, orderMerchantId]
+  );
+  const selectedBindMerchantName = useMemo(
+    () => merchants.find((item) => item.id === bindMerchantId)?.name || '请选择商家',
+    [merchants, bindMerchantId]
   );
 
   useEffect(() => {
@@ -118,6 +129,22 @@ export default function TeacherWorkbench() {
     };
   }, [showOrderMerchantDropdown]);
 
+  useEffect(() => {
+    if (!showBindMerchantDropdown) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!bindMerchantDropdownRef.current?.contains(target)) {
+        setShowBindMerchantDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showBindMerchantDropdown]);
+
   const onBindMerchantChange = (merchantId: string) => {
     setBindMerchantId(merchantId);
     const merchant = merchants.find((item) => item.id === merchantId);
@@ -175,6 +202,30 @@ export default function TeacherWorkbench() {
     }
   };
 
+  const handleToggleBindingLogs = async (binding: TeacherBinding) => {
+    if (activeBindingId === binding.id) {
+      setActiveBindingId('');
+      return;
+    }
+    setActiveBindingId(binding.id);
+
+    if (usageLogsByDevice[binding.deviceId]) {
+      return;
+    }
+
+    setUsageLogsLoadingDeviceId(binding.deviceId);
+    const logsRes = await getTeacherDeviceUsageLogs(binding.deviceId);
+    if (String(logsRes.code) === '200') {
+      setUsageLogsByDevice((prev) => ({
+        ...prev,
+        [binding.deviceId]: logsRes.data,
+      }));
+    } else {
+      setMessage(logsRes.msg || '获取使用流水失败');
+    }
+    setUsageLogsLoadingDeviceId('');
+  };
+
   return (
     <div className="w-full max-w-2xl mx-auto px-2 py-3">
       <div className="mb-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-4 text-white shadow-sm">
@@ -195,18 +246,24 @@ export default function TeacherWorkbench() {
       <div className="grid grid-cols-3 gap-2 mb-4 rounded-2xl bg-white p-2 border border-slate-200 shadow-sm">
         <button
           type="button"
-          onClick={() => setActiveTab('order')}
+          onClick={() => {
+            setActiveTab('order');
+            setMessage('');
+          }}
           className={`rounded-xl py-2 text-sm font-medium transition-all ${
             activeTab === 'order'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'bg-white text-slate-600 hover:bg-blue-50 hover:text-blue-700'
           }`}
         >
-          下单功能
+          下单
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('bind')}
+          onClick={() => {
+            setActiveTab('bind');
+            setMessage('');
+          }}
           className={`rounded-xl py-2 text-sm font-medium transition-all ${
             activeTab === 'bind'
               ? 'bg-blue-600 text-white shadow-sm'
@@ -217,7 +274,10 @@ export default function TeacherWorkbench() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('bound')}
+          onClick={() => {
+            setActiveTab('bound');
+            setMessage('');
+          }}
           className={`rounded-xl py-2 text-sm font-medium transition-all ${
             activeTab === 'bound'
               ? 'bg-blue-600 text-white shadow-sm'
@@ -398,23 +458,48 @@ export default function TeacherWorkbench() {
 
       {activeTab === 'bind' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-sm">
-          <input
-            value={merchantKeyword}
-            onChange={(e) => setMerchantKeyword(e.target.value)}
-            placeholder="搜索商家"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          />
-          <select
-            value={bindMerchantId}
-            onChange={(e) => onBindMerchantChange(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          >
-            {filteredMerchants.map((merchant) => (
-              <option key={merchant.id} value={merchant.id}>
-                {merchant.name}
-              </option>
-            ))}
-          </select>
+          <div className="relative" ref={bindMerchantDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setShowBindMerchantDropdown((prev) => !prev)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            >
+              {selectedBindMerchantName}
+            </button>
+            {showBindMerchantDropdown && (
+              <div className="absolute z-20 mt-2 w-full rounded-xl border border-slate-200 bg-white shadow-lg p-2">
+                <input
+                  value={bindMerchantKeyword}
+                  onChange={(e) => setBindMerchantKeyword(e.target.value)}
+                  placeholder="搜索商家"
+                  className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                />
+                <div className="max-h-40 overflow-auto space-y-1">
+                  {filteredBindMerchants.length === 0 ? (
+                    <div className="px-2 py-2 text-xs text-slate-400">未找到匹配商家</div>
+                  ) : (
+                    filteredBindMerchants.map((merchant) => (
+                      <button
+                        key={merchant.id}
+                        type="button"
+                        onClick={() => {
+                          onBindMerchantChange(merchant.id);
+                          setShowBindMerchantDropdown(false);
+                        }}
+                        className={`w-full rounded-lg px-2 py-2 text-left text-sm transition-all ${
+                          merchant.id === bindMerchantId
+                            ? 'bg-blue-50 text-blue-700'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {merchant.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <select
             value={bindDeviceId}
             onChange={(e) => setBindDeviceId(e.target.value)}
@@ -445,12 +530,55 @@ export default function TeacherWorkbench() {
           ) : (
             bindings.map((item) => (
               <div key={item.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <p className="text-sm text-slate-800 font-medium">{item.merchantName}</p>
-                <p className="text-sm text-slate-700 mt-1">{item.deviceName}</p>
-                <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                  <span>ID: {item.deviceId}</span>
-                  <span>{item.boundAt}</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleBindingLogs(item)}
+                  className="w-full text-left"
+                >
+                  <p className="text-sm text-slate-800 font-medium">{item.merchantName}</p>
+                  <p className="text-sm text-slate-700 mt-1">{item.deviceName}</p>
+                  <p className="mt-2 text-xs text-slate-600">使用次数：{item.usageCount}</p>
+                  <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                    <span>ID: {item.deviceId}</span>
+                    <span>{item.boundAt}</span>
+                  </div>
+                </button>
+
+                {activeBindingId === item.id && (
+                  <div className="mt-3 rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                      使用流水记录
+                    </div>
+                    {usageLogsLoadingDeviceId === item.deviceId ? (
+                      <div className="px-3 py-4 text-xs text-slate-500">加载中...</div>
+                    ) : (usageLogsByDevice[item.deviceId]?.length ?? 0) === 0 ? (
+                      <div className="px-3 py-4 text-xs text-slate-500">暂无流水记录</div>
+                    ) : (
+                      <div className="max-h-52 overflow-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium">时间</th>
+                              <th className="px-3 py-2 text-left font-medium">用户手机号</th>
+                              <th className="px-3 py-2 text-left font-medium">项目</th>
+                              <th className="px-3 py-2 text-left font-medium">商家</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(usageLogsByDevice[item.deviceId] || []).map((log) => (
+                              <tr key={log.id} className="border-t border-slate-100 text-slate-700">
+                                <td className="px-3 py-2 whitespace-nowrap">{log.usedAt}</td>
+                                <td className="px-3 py-2 whitespace-nowrap">{log.userPhone}</td>
+                                <td className="px-3 py-2">{log.projectName}</td>
+                                <td className="px-3 py-2">{log.merchantName}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))
           )}
