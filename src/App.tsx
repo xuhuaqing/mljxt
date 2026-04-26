@@ -10,7 +10,12 @@ export default function App() {
     return (
       <Dashboard
         role={loggedInRole}
-        onLogout={() => setLoggedInRole(null)}
+        onLogout={() => {
+          window.localStorage.removeItem('currentUserId');
+          window.localStorage.removeItem('currentUserRole');
+          window.localStorage.removeItem('currentMerchantRemainingUseCount');
+          setLoggedInRole(null);
+        }}
       />
     );
   }

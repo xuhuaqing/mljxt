@@ -10,12 +10,22 @@ import {
 type DeveloperTab = 'devices' | 'withdraw';
 
 export default function DeveloperWorkbench() {
+  const currentDeveloperId = window.localStorage.getItem('currentUserId') || '';
   const [activeTab, setActiveTab] = useState<DeveloperTab>('devices');
   const [devices, setDevices] = useState<DeveloperDeviceSummary[]>([]);
   const [withdrawRecords, setWithdrawRecords] = useState<WithdrawRecord[]>([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawPageNo, setWithdrawPageNo] = useState(1);
+  const withdrawPageSize = 10;
+  const [withdrawTotal, setWithdrawTotal] = useState(0);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   const groupedDevices = useMemo(() => {
     return devices.reduce<Record<string, DeveloperDeviceSummary[]>>((acc, item) => {
@@ -27,26 +37,35 @@ export default function DeveloperWorkbench() {
     }, {});
   }, [devices]);
 
+  const loadDevices = async () => {
+    const deviceRes = await getDeveloperDevices(currentDeveloperId);
+    if (String(deviceRes.code) === '200' || String(deviceRes.code) === '0') {
+      setDevices(deviceRes.data);
+    } else {
+      setMessage(deviceRes.msg || '获取设备失败');
+    }
+  };
+
+  const loadWithdrawRecords = async (pageNo = withdrawPageNo) => {
+    const withdrawRes = await getWithdrawRecords({
+      developerId: currentDeveloperId,
+      pageNo,
+      pageSize: withdrawPageSize,
+    });
+    if (String(withdrawRes.code) === '200' || String(withdrawRes.code) === '0') {
+      setWithdrawRecords(withdrawRes.data.records);
+      setWithdrawTotal(withdrawRes.data.total);
+      setWithdrawPageNo(pageNo);
+    } else {
+      setMessage(withdrawRes.msg || '获取提现明细失败');
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [deviceRes, withdrawRes] = await Promise.all([
-          getDeveloperDevices(),
-          getWithdrawRecords(),
-        ]);
-
-        if (String(deviceRes.code) === '200') {
-          setDevices(deviceRes.data);
-        } else {
-          setMessage(deviceRes.msg || '获取设备失败');
-        }
-
-        if (String(withdrawRes.code) === '200') {
-          setWithdrawRecords(withdrawRes.data);
-        } else {
-          setMessage(withdrawRes.msg || '获取提现明细失败');
-        }
+        await Promise.all([loadDevices(), loadWithdrawRecords()]);
       } catch {
         setMessage('加载开发端数据失败');
       } finally {
@@ -55,20 +74,20 @@ export default function DeveloperWorkbench() {
     };
 
     void loadData();
-  }, []);
+  }, [currentDeveloperId]);
 
   const handleWithdraw = async () => {
     setWithdrawing(true);
-    const result = await createWithdraw();
+    const result = await createWithdraw(currentDeveloperId);
     setWithdrawing(false);
 
-    if (String(result.code) !== '200') {
+    if (String(result.code) !== '200' && String(result.code) !== '0') {
       setMessage(result.msg || '提现失败');
       return;
     }
 
     setMessage(result.msg || '提现成功');
-    setWithdrawRecords((prev) => [result.data, ...prev]);
+    await loadWithdrawRecords(1);
     setActiveTab('withdraw');
   };
 
@@ -93,7 +112,11 @@ export default function DeveloperWorkbench() {
       <div className="grid grid-cols-2 gap-2 mb-4 rounded-2xl bg-white p-2 border border-slate-200 shadow-sm">
         <button
           type="button"
-          onClick={() => setActiveTab('devices')}
+          onClick={async () => {
+            setActiveTab('devices');
+            setMessage('');
+            await loadDevices();
+          }}
           className={`rounded-xl py-2 text-sm font-medium transition-all ${
             activeTab === 'devices' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
           }`}
@@ -102,7 +125,11 @@ export default function DeveloperWorkbench() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('withdraw')}
+          onClick={async () => {
+            setActiveTab('withdraw');
+            setMessage('');
+            await loadWithdrawRecords();
+          }}
           className={`rounded-xl py-2 text-sm font-medium transition-all ${
             activeTab === 'withdraw' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-indigo-50 hover:text-indigo-700'
           }`}
@@ -168,6 +195,33 @@ export default function DeveloperWorkbench() {
                   <p className="text-xs text-slate-600 mt-1">提现时设备使用次数：{record.usageCount}</p>
                 </div>
               ))}
+            </div>
+          )}
+          {withdrawRecords.length > 0 && (
+            <div className="border-t border-slate-100 px-3 py-2 flex items-center justify-between text-xs text-slate-600">
+              <span>第 {withdrawPageNo} 页，共 {Math.max(1, Math.ceil(withdrawTotal / withdrawPageSize))} 页，{withdrawTotal} 条</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={withdrawPageNo <= 1}
+                  onClick={async () => {
+                    await loadWithdrawRecords(Math.max(1, withdrawPageNo - 1));
+                  }}
+                  className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40"
+                >
+                  上一页
+                </button>
+                <button
+                  type="button"
+                  disabled={withdrawPageNo >= Math.max(1, Math.ceil(withdrawTotal / withdrawPageSize))}
+                  onClick={async () => {
+                    await loadWithdrawRecords(Math.min(Math.max(1, Math.ceil(withdrawTotal / withdrawPageSize)), withdrawPageNo + 1));
+                  }}
+                  className="rounded border border-slate-200 px-2 py-1 disabled:opacity-40"
+                >
+                  下一页
+                </button>
+              </div>
             </div>
           )}
         </div>

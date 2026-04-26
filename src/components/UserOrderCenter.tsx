@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  getMerchantsAndDevices,
+  getDevicesByMerchantId,
+  getMerchantOptions,
+  MerchantDevice,
+  MerchantOption,
   getUsageRecords,
   getUserOrders,
-  Merchant,
   useInstrument,
   UsageRecord,
   UserOrder,
 } from '../lib/api';
 
 export default function UserOrderCenter() {
-  const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [devices, setDevices] = useState<MerchantDevice[]>([]);
+  const [merchantOptions, setMerchantOptions] = useState<MerchantOption[]>([]);
   const [selectedMerchantId, setSelectedMerchantId] = useState('');
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [orders, setOrders] = useState<UserOrder[]>([]);
@@ -19,14 +22,15 @@ export default function UserOrderCenter() {
   const [actionMessage, setActionMessage] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const selectedMerchant = useMemo(
-    () => merchants.find((merchant) => merchant.id === selectedMerchantId),
-    [merchants, selectedMerchantId]
-  );
+  useEffect(() => {
+    if (!actionMessage) return;
+    const timer = window.setTimeout(() => setActionMessage(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [actionMessage]);
 
   const selectedDevice = useMemo(
-    () => selectedMerchant?.devices.find((device) => device.id === selectedDeviceId),
-    [selectedMerchant, selectedDeviceId]
+    () => devices.find((device) => device.id === selectedDeviceId),
+    [devices, selectedDeviceId]
   );
   const visibleOrders = orders;
 
@@ -34,21 +38,30 @@ export default function UserOrderCenter() {
     const loadInitData = async () => {
       setLoading(true);
       try {
-        const merchantRes = await getMerchantsAndDevices();
-        if (String(merchantRes.code) !== '200' || merchantRes.data.length === 0) {
-          setActionMessage(merchantRes.msg || '获取商家失败');
+        const merchantOptionRes = await getMerchantOptions();
+        if (
+          (String(merchantOptionRes.code) !== '0' && String(merchantOptionRes.code) !== '200') ||
+          merchantOptionRes.data.length === 0
+        ) {
+          setActionMessage(merchantOptionRes.msg || '获取商家失败');
           return;
         }
+        setMerchantOptions(merchantOptionRes.data);
 
-        const loadedMerchants = merchantRes.data;
-        const firstMerchant = loadedMerchants[0];
-        const firstDeviceId = firstMerchant.devices[0]?.id || '';
-        setMerchants(loadedMerchants);
-        setSelectedMerchantId(firstMerchant.id);
-        setSelectedDeviceId(firstDeviceId);
+        const firstMerchantId = merchantOptionRes.data[0]?.id || '';
+        setSelectedMerchantId(firstMerchantId);
+
+        const firstDeviceRes = await getDevicesByMerchantId(firstMerchantId);
+        if (String(firstDeviceRes.code) === '0' || String(firstDeviceRes.code) === '200') {
+          setDevices(firstDeviceRes.data);
+          setSelectedDeviceId(firstDeviceRes.data[0]?.id || '');
+        } else {
+          setDevices([]);
+          setSelectedDeviceId('');
+        }
 
         const [orderRes, historyRes] = await Promise.all([
-          getUserOrders(firstMerchant.id),
+          getUserOrders(firstMerchantId),
           getUsageRecords(),
         ]);
 
@@ -74,13 +87,21 @@ export default function UserOrderCenter() {
   }, []);
 
   const handleMerchantChange = async (merchantId: string) => {
-    const merchant = merchants.find((item) => item.id === merchantId);
-    if (!merchant) return;
-    setSelectedMerchantId(merchant.id);
-    setSelectedDeviceId(merchant.devices[0]?.id || '');
+    if (!merchantId) return;
+    setSelectedMerchantId(merchantId);
     setActionMessage('');
 
-    const orderRes = await getUserOrders(merchant.id);
+    const deviceRes = await getDevicesByMerchantId(merchantId);
+    if (String(deviceRes.code) === '0' || String(deviceRes.code) === '200') {
+      setDevices(deviceRes.data);
+      setSelectedDeviceId(deviceRes.data[0]?.id || '');
+    } else {
+      setDevices([]);
+      setSelectedDeviceId('');
+      setActionMessage(deviceRes.msg || '获取设备失败');
+    }
+
+    const orderRes = await getUserOrders(merchantId);
     if (String(orderRes.code) !== '200') {
       setActionMessage(orderRes.msg || '获取订单失败');
       return;
@@ -134,7 +155,7 @@ export default function UserOrderCenter() {
             onChange={(e) => handleMerchantChange(e.target.value)}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
-            {merchants.map((merchant) => (
+            {merchantOptions.map((merchant) => (
               <option key={merchant.id} value={merchant.id}>
                 {merchant.name}
               </option>
@@ -145,7 +166,7 @@ export default function UserOrderCenter() {
             onChange={(e) => setSelectedDeviceId(e.target.value)}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
-            {selectedMerchant?.devices.map((device) => (
+            {devices.map((device) => (
               <option key={device.id} value={device.id}>
                 {device.name}
               </option>
@@ -157,7 +178,10 @@ export default function UserOrderCenter() {
       <div className="grid grid-cols-2 gap-2 mb-4">
         <button
           type="button"
-          onClick={() => setActiveTab('orders')}
+          onClick={() => {
+            setActiveTab('orders');
+            setActionMessage('');
+          }}
           className={`rounded-lg py-2 text-sm font-medium transition-all ${
             activeTab === 'orders' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
           }`}
@@ -166,7 +190,10 @@ export default function UserOrderCenter() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('history')}
+          onClick={() => {
+            setActiveTab('history');
+            setActionMessage('');
+          }}
           className={`rounded-lg py-2 text-sm font-medium transition-all ${
             activeTab === 'history' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
           }`}

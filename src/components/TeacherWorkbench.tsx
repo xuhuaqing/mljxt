@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   bindTeacherDevice,
   createTeacherOrder,
+  getDevicesByMerchantId,
+  getMerchantOptions,
   getTeacherDeviceUsageLogs,
-  getMerchantsAndDevices,
   getProjectCategories,
   getTeacherBindings,
-  Merchant,
+  MerchantDevice,
+  MerchantOption,
   ProjectCategory,
   TeacherBinding,
   TeacherOrderPayload,
@@ -15,20 +17,35 @@ import {
 
 type TeacherTab = 'order' | 'bind' | 'bound';
 
+function formatDateTime(value: string): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mi = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
 const defaultOrderForm: Omit<TeacherOrderPayload, 'merchantId' | 'projectName'> = {
   phone: '',
   gender: '女',
   age: 25,
   height: 165,
   weight: 52,
+  usageCount: 1,
+  exercisePerformance: 0,
   durationMinutes: 45,
 };
 
 export default function TeacherWorkbench() {
+  const teacherId = Number(window.localStorage.getItem('currentUserId') || 0);
   const orderMerchantDropdownRef = useRef<HTMLDivElement | null>(null);
   const bindMerchantDropdownRef = useRef<HTMLDivElement | null>(null);
   const [activeTab, setActiveTab] = useState<TeacherTab>('order');
-  const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [projectCategories, setProjectCategories] = useState<ProjectCategory[]>([]);
   const [bindings, setBindings] = useState<TeacherBinding[]>([]);
 
@@ -36,9 +53,13 @@ export default function TeacherWorkbench() {
   const [showOrderMerchantDropdown, setShowOrderMerchantDropdown] = useState(false);
   const [bindMerchantKeyword, setBindMerchantKeyword] = useState('');
   const [showBindMerchantDropdown, setShowBindMerchantDropdown] = useState(false);
+  const [boundMerchantFilterId, setBoundMerchantFilterId] = useState('');
+  const [orderMerchantOptions, setOrderMerchantOptions] = useState<MerchantOption[]>([]);
+  const [bindMerchantOptions, setBindMerchantOptions] = useState<MerchantOption[]>([]);
   const [orderMerchantId, setOrderMerchantId] = useState('');
   const [bindMerchantId, setBindMerchantId] = useState('');
   const [bindDeviceId, setBindDeviceId] = useState('');
+  const [bindDevices, setBindDevices] = useState<MerchantDevice[]>([]);
   const [selectedProject, setSelectedProject] = useState('');
   const [showOrderDetail, setShowOrderDetail] = useState(false);
   const [orderForm, setOrderForm] = useState(defaultOrderForm);
@@ -48,60 +69,78 @@ export default function TeacherWorkbench() {
   const [usageLogsByDevice, setUsageLogsByDevice] = useState<Record<string, UsageRecord[]>>({});
   const [usageLogsLoadingDeviceId, setUsageLogsLoadingDeviceId] = useState('');
 
-  const filteredOrderMerchants = useMemo(() => {
-    const keyword = orderMerchantKeyword.trim();
-    if (!keyword) return merchants;
-    return merchants.filter((item) => item.name.includes(keyword));
-  }, [merchants, orderMerchantKeyword]);
-  const filteredBindMerchants = useMemo(() => {
-    const keyword = bindMerchantKeyword.trim();
-    if (!keyword) return merchants;
-    return merchants.filter((item) => item.name.includes(keyword));
-  }, [merchants, bindMerchantKeyword]);
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
-  const bindSelectedMerchant = useMemo(
-    () => merchants.find((item) => item.id === bindMerchantId),
-    [merchants, bindMerchantId]
-  );
+  const filteredOrderMerchants = useMemo(() => orderMerchantOptions, [orderMerchantOptions]);
+  const filteredBindMerchants = useMemo(() => bindMerchantOptions, [bindMerchantOptions]);
+
   const selectedOrderMerchantName = useMemo(
-    () => merchants.find((item) => item.id === orderMerchantId)?.name || '请选择商家',
-    [merchants, orderMerchantId]
+    () =>
+      orderMerchantOptions.find((item) => item.id === orderMerchantId)?.name ||
+      '请选择商家',
+    [orderMerchantOptions, orderMerchantId]
   );
   const selectedBindMerchantName = useMemo(
-    () => merchants.find((item) => item.id === bindMerchantId)?.name || '请选择商家',
-    [merchants, bindMerchantId]
+    () =>
+      bindMerchantOptions.find((item) => item.id === bindMerchantId)?.name ||
+      '请选择商家',
+    [bindMerchantOptions, bindMerchantId]
   );
 
   useEffect(() => {
     const loadTeacherData = async () => {
       setLoading(true);
       try {
-        const [merchantRes, projectRes, bindingRes] = await Promise.all([
-          getMerchantsAndDevices(),
+        const [merchantOptionsResult, projectResult, bindingResult] = await Promise.allSettled([
+          getMerchantOptions(),
           getProjectCategories(),
-          getTeacherBindings(),
+          getTeacherBindings(teacherId),
         ]);
 
-        if (String(merchantRes.code) === '200') {
-          setMerchants(merchantRes.data);
-          const firstMerchantId = merchantRes.data[0]?.id || '';
-          setOrderMerchantId(firstMerchantId);
-          setBindMerchantId(firstMerchantId);
-          setBindDeviceId(merchantRes.data[0]?.devices[0]?.id || '');
-        } else {
-          setMessage(merchantRes.msg || '获取商家失败');
+        let merchantOptionLoaded = false;
+
+        if (merchantOptionsResult.status === 'fulfilled') {
+          const optionRes = merchantOptionsResult.value;
+          if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
+            merchantOptionLoaded = true;
+            setOrderMerchantOptions(optionRes.data);
+            setBindMerchantOptions(optionRes.data);
+            const firstMerchantId = optionRes.data[0]?.id || '';
+            if (firstMerchantId) {
+              setOrderMerchantId(firstMerchantId);
+              setBindMerchantId(firstMerchantId);
+            }
+          }
         }
 
-        if (String(projectRes.code) === '200') {
-          setProjectCategories(projectRes.data);
-        } else {
-          setMessage(projectRes.msg || '获取项目失败');
+        if (!merchantOptionLoaded) {
+          setMessage('获取商家下拉失败');
         }
 
-        if (String(bindingRes.code) === '200') {
-          setBindings(bindingRes.data);
+        if (projectResult.status === 'fulfilled') {
+          const projectRes = projectResult.value;
+          if (String(projectRes.code) === '200' || String(projectRes.code) === '0') {
+            setProjectCategories(projectRes.data);
+          } else {
+            setMessage(projectRes.msg || '获取项目失败');
+          }
         } else {
-          setMessage(bindingRes.msg || '获取绑定信息失败');
+          setMessage('获取项目失败');
+        }
+
+        if (bindingResult.status === 'fulfilled') {
+          const bindingRes = bindingResult.value;
+          if (String(bindingRes.code) === '200' || String(bindingRes.code) === '0') {
+            setBindings(bindingRes.data);
+          } else {
+            setMessage(bindingRes.msg || '获取绑定信息失败');
+          }
+        } else {
+          setMessage('获取绑定信息失败');
         }
       } catch {
         setMessage('加载老师功能数据失败');
@@ -111,7 +150,7 @@ export default function TeacherWorkbench() {
     };
 
     void loadTeacherData();
-  }, []);
+  }, [teacherId]);
 
   useEffect(() => {
     if (!showOrderMerchantDropdown) return;
@@ -145,11 +184,116 @@ export default function TeacherWorkbench() {
     };
   }, [showBindMerchantDropdown]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      try {
+        const optionRes = await getMerchantOptions(orderMerchantKeyword);
+        if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
+          setOrderMerchantOptions(optionRes.data);
+        } else {
+          setMessage(optionRes.msg || '获取商家下拉失败');
+        }
+      } catch {
+        setMessage('获取商家下拉失败，请检查网络或接口地址');
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [orderMerchantKeyword]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      try {
+        const optionRes = await getMerchantOptions(bindMerchantKeyword);
+        if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
+          setBindMerchantOptions(optionRes.data);
+        } else {
+          setMessage(optionRes.msg || '获取商家下拉失败');
+        }
+      } catch {
+        setMessage('获取商家下拉失败，请检查网络或接口地址');
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [bindMerchantKeyword]);
+
+  useEffect(() => {
+    if (!showOrderMerchantDropdown) return;
+    void (async () => {
+      try {
+        const optionRes = await getMerchantOptions(orderMerchantKeyword);
+        if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
+          setOrderMerchantOptions(optionRes.data);
+        } else {
+          setMessage(optionRes.msg || '获取商家下拉失败');
+        }
+      } catch {
+        setMessage('获取商家下拉失败，请检查网络或接口地址');
+      }
+    })();
+  }, [showOrderMerchantDropdown, orderMerchantKeyword]);
+
+  useEffect(() => {
+    if (!showBindMerchantDropdown) return;
+    void (async () => {
+      try {
+        const optionRes = await getMerchantOptions(bindMerchantKeyword);
+        if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
+          setBindMerchantOptions(optionRes.data);
+        } else {
+          setMessage(optionRes.msg || '获取商家下拉失败');
+        }
+      } catch {
+        setMessage('获取商家下拉失败，请检查网络或接口地址');
+      }
+    })();
+  }, [showBindMerchantDropdown, bindMerchantKeyword]);
+
   const onBindMerchantChange = (merchantId: string) => {
     setBindMerchantId(merchantId);
-    const merchant = merchants.find((item) => item.id === merchantId);
-    setBindDeviceId(merchant?.devices[0]?.id || '');
+    setBindDeviceId('');
   };
+
+  const loadTeacherBindings = async (merchantId?: number) => {
+    if (!teacherId || teacherId <= 0) {
+      setMessage('未获取到老师ID，请重新登录');
+      return;
+    }
+    const bindingsRes = await getTeacherBindings(teacherId, merchantId);
+    if (String(bindingsRes.code) === '200' || String(bindingsRes.code) === '0') {
+      setBindings(bindingsRes.data);
+    } else {
+      setMessage(bindingsRes.msg || '获取绑定信息失败');
+    }
+  };
+
+  useEffect(() => {
+    if (!bindMerchantId) {
+      setBindDevices([]);
+      setBindDeviceId('');
+      return;
+    }
+
+    void (async () => {
+      try {
+        const deviceRes = await getDevicesByMerchantId(bindMerchantId);
+        if (String(deviceRes.code) === '0' || String(deviceRes.code) === '200') {
+          setBindDevices(deviceRes.data);
+          setBindDeviceId(deviceRes.data[0]?.id || '');
+          if (deviceRes.data.length === 0) {
+            setMessage('该商家暂无设备');
+          }
+        } else {
+          setBindDevices([]);
+          setBindDeviceId('');
+          setMessage(deviceRes.msg || '获取设备列表失败');
+        }
+      } catch {
+        setBindDevices([]);
+        setBindDeviceId('');
+        setMessage('获取设备列表失败，请检查网络或接口地址');
+      }
+    })();
+  }, [bindMerchantId]);
 
   const handleSubmitOrder = async () => {
     if (!/^1[3-9]\d{9}$/.test(orderForm.phone)) {
@@ -172,12 +316,16 @@ export default function TeacherWorkbench() {
     };
 
     const result = await createTeacherOrder(payload);
-    if (String(result.code) !== '200') {
+    if (String(result.code) !== '200' && String(result.code) !== '0') {
       setMessage(result.msg || '下单失败');
       return;
     }
 
-    setMessage(result.msg || '下单成功');
+    const createdMsg =
+      result.data?.newUserCreated && result.data.initialPassword
+        ? `下单成功，已自动创建用户，初始密码：${result.data.initialPassword}`
+        : result.msg || '下单成功';
+    setMessage(createdMsg);
     setShowOrderDetail(false);
     setSelectedProject('');
     setOrderForm(defaultOrderForm);
@@ -189,17 +337,23 @@ export default function TeacherWorkbench() {
       return;
     }
 
-    const result = await bindTeacherDevice({
-      merchantId: bindMerchantId,
-      deviceId: bindDeviceId,
-    });
-    setMessage(result.msg || '绑定结果未知');
-    if (String(result.code) !== '200') return;
-
-    const bindingsRes = await getTeacherBindings();
-    if (String(bindingsRes.code) === '200') {
-      setBindings(bindingsRes.data);
+    if (!teacherId || teacherId <= 0) {
+      setMessage('未获取到老师ID，请重新登录');
+      return;
     }
+
+    const result = await bindTeacherDevice({
+      teacherId,
+      merchantId: Number(bindMerchantId),
+      deviceId: Number(bindDeviceId),
+    });
+    if (String(result.code) !== '200' && String(result.code) !== '0') {
+      setMessage(result.msg || '绑定失败');
+      return;
+    }
+    setMessage(result.data?.alreadyBound ? '该设备已绑定，请勿重复绑定' : '绑定成功');
+
+    await loadTeacherBindings();
   };
 
   const handleToggleBindingLogs = async (binding: TeacherBinding) => {
@@ -300,16 +454,16 @@ export default function TeacherWorkbench() {
                 <div className="grid grid-cols-2 gap-2">
                   {category.projects.map((project) => (
                     <button
-                      key={project}
+                      key={project.code}
                       type="button"
                       onClick={() => {
-                        setSelectedProject(project);
+                        setSelectedProject(project.name);
                         setShowOrderDetail(true);
                         setMessage('');
                       }}
                       className="rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-2 py-2 text-xs text-slate-700 hover:border-blue-200 hover:text-blue-700 hover:from-blue-50 hover:to-blue-50 transition-all"
                     >
-                      {project}
+                      {project.name}
                     </button>
                   ))}
                 </div>
@@ -376,6 +530,22 @@ export default function TeacherWorkbench() {
                 </div>
               </div>
 
+              <label className="block text-xs text-slate-500 mb-1">运动表现</label>
+              <select
+                value={orderForm.exercisePerformance}
+                onChange={(e) =>
+                  setOrderForm((prev) => ({
+                    ...prev,
+                    exercisePerformance: Number(e.target.value) as 0 | 1 | 2,
+                  }))
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              >
+                <option value={0}>经常运动</option>
+                <option value={1}>偶尔运动</option>
+                <option value={2}>从未运动</option>
+              </select>
+
               <label className="block text-xs text-slate-500 mb-1">项目名称</label>
               <input
                 value={selectedProject}
@@ -388,6 +558,20 @@ export default function TeacherWorkbench() {
                 type="number"
                 value={orderForm.durationMinutes}
                 onChange={(e) => setOrderForm((prev) => ({ ...prev, durationMinutes: Number(e.target.value) || 45 }))}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              />
+
+              <label className="block text-xs text-slate-500 mb-1">使用次数</label>
+              <input
+                type="number"
+                min={1}
+                value={orderForm.usageCount}
+                onChange={(e) =>
+                  setOrderForm((prev) => ({
+                    ...prev,
+                    usageCount: Math.max(1, Number(e.target.value) || 1),
+                  }))
+                }
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               />
 
@@ -505,7 +689,8 @@ export default function TeacherWorkbench() {
             onChange={(e) => setBindDeviceId(e.target.value)}
             className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
-            {bindSelectedMerchant?.devices.map((device) => (
+            {bindDevices.length === 0 && <option value="">暂无可选设备</option>}
+            {bindDevices.map((device) => (
               <option key={device.id} value={device.id}>
                 {device.name}
               </option>
@@ -523,6 +708,44 @@ export default function TeacherWorkbench() {
 
       {activeTab === 'bound' && (
         <div className="space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm">
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs text-slate-500">按商家筛选</label>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!boundMerchantFilterId) {
+                    await loadTeacherBindings();
+                    return;
+                  }
+                  await loadTeacherBindings(Number(boundMerchantFilterId));
+                }}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                刷新
+              </button>
+            </div>
+            <select
+              value={boundMerchantFilterId}
+              onChange={async (e) => {
+                const merchantId = e.target.value;
+                setBoundMerchantFilterId(merchantId);
+                if (!merchantId) {
+                  await loadTeacherBindings();
+                  return;
+                }
+                await loadTeacherBindings(Number(merchantId));
+              }}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            >
+              <option value="">全部商家</option>
+              {bindMerchantOptions.map((merchant) => (
+                <option key={merchant.id} value={merchant.id}>
+                  {merchant.name}
+                </option>
+              ))}
+            </select>
+          </div>
           {bindings.length === 0 ? (
             <div className="text-sm text-slate-500 text-center py-8 bg-white rounded-2xl border border-slate-200">
               暂无绑定信息
@@ -540,7 +763,7 @@ export default function TeacherWorkbench() {
                   <p className="mt-2 text-xs text-slate-600">使用次数：{item.usageCount}</p>
                   <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
                     <span>ID: {item.deviceId}</span>
-                    <span>{item.boundAt}</span>
+                    <span>{formatDateTime(item.boundAt)}</span>
                   </div>
                 </button>
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { UserRole } from '../lib/supabase';
 import { login, roleCodeMap } from '../lib/api';
@@ -22,18 +22,28 @@ interface LoginPageProps {
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [selectedRole, setSelectedRole] = useState<UserRole>('user');
-  const [userName, setUserName] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!userName.trim()) {
-      setError('请输入用户名');
+    if (!phone.trim()) {
+      setError('请输入手机号');
+      return;
+    }
+    if (!/^1[3-9]\d{9}$/.test(phone.trim())) {
+      setError('请输入11位有效手机号');
       return;
     }
     if (!password) {
@@ -45,17 +55,24 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
     try {
       const result = await login({
-        userName: userName.trim(),
+        phone: phone.trim(),
         password,
         role: roleCodeMap[selectedRole],
       });
 
-      if (!result || String(result.code) !== '200') {
+      if (!result || String(result.code) !== '0') {
         setError(result?.msg || '登录失败');
         return;
       }
 
-      if (result.data === true) {
+      if (result.data) {
+        window.localStorage.setItem('currentUserId', String(result.data.id));
+        window.localStorage.setItem('currentUserRole', String(result.data.role));
+        if (typeof result.data.remainingUseCount === 'number') {
+          window.localStorage.setItem('currentMerchantRemainingUseCount', String(result.data.remainingUseCount));
+        } else {
+          window.localStorage.removeItem('currentMerchantRemainingUseCount');
+        }
         onLoginSuccess(selectedRole);
       } else {
         setError(result.msg || '登录失败');
@@ -102,16 +119,16 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
         {/* Form */}
         <form onSubmit={handleLogin} className="space-y-4 flex-1">
-          {/* Username */}
+          {/* Phone */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              用户名
+              手机号
             </label>
             <input
-              type="text"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              placeholder="请输入用户名"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              placeholder="请输入11位手机号"
               className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-slate-800 placeholder-gray-400 text-base focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:bg-white transition-all"
             />
           </div>
