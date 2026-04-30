@@ -68,6 +68,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       if (result.data) {
         window.localStorage.setItem('currentUserId', String(result.data.id));
         window.localStorage.setItem('currentUserRole', String(result.data.role));
+        window.localStorage.setItem('currentUserPhone', result.data.phone || phone.trim());
         if (typeof result.data.remainingUseCount === 'number') {
           window.localStorage.setItem('currentMerchantRemainingUseCount', String(result.data.remainingUseCount));
         } else {

@@ -12,6 +12,7 @@ import {
 } from '../lib/api';
 
 export default function UserOrderCenter() {
+  const currentUserPhone = window.localStorage.getItem('currentUserPhone') || '';
   const [devices, setDevices] = useState<MerchantDevice[]>([]);
   const [merchantOptions, setMerchantOptions] = useState<MerchantOption[]>([]);
   const [selectedMerchantId, setSelectedMerchantId] = useState('');
@@ -33,6 +34,27 @@ export default function UserOrderCenter() {
     [devices, selectedDeviceId]
   );
   const visibleOrders = orders;
+
+  const refreshCurrentData = async () => {
+    if (!selectedMerchantId) return;
+    const [orderResult, historyResult] = await Promise.allSettled([
+      getUserOrders({ phone: currentUserPhone, merchantId: selectedMerchantId, pageNo: 1, pageSize: 50 }),
+      getUsageRecords({ phone: currentUserPhone, pageNo: 1, pageSize: 50 }),
+    ]);
+    if (
+      orderResult.status === 'fulfilled' &&
+      (String(orderResult.value.code) === '200' || String(orderResult.value.code) === '0')
+    ) {
+      setOrders(orderResult.value.data);
+    }
+    if (
+      historyResult.status === 'fulfilled' &&
+      (String(historyResult.value.code) === '200' || String(historyResult.value.code) === '0')
+    ) {
+      setUsageRecords(historyResult.value.data);
+    }
+    setActionMessage('数据已刷新');
+  };
 
   useEffect(() => {
     const loadInitData = async () => {
@@ -60,21 +82,34 @@ export default function UserOrderCenter() {
           setSelectedDeviceId('');
         }
 
-        const [orderRes, historyRes] = await Promise.all([
-          getUserOrders(firstMerchantId),
-          getUsageRecords(),
+        const [orderResult, historyResult] = await Promise.allSettled([
+          getUserOrders({ phone: currentUserPhone, merchantId: firstMerchantId, pageNo: 1, pageSize: 50 }),
+          getUsageRecords({ phone: currentUserPhone, pageNo: 1, pageSize: 50 }),
         ]);
 
-        if (String(orderRes.code) === '200') {
-          setOrders(orderRes.data);
+        if (orderResult.status === 'fulfilled') {
+          const orderRes = orderResult.value;
+          if (String(orderRes.code) === '200' || String(orderRes.code) === '0') {
+            setOrders(orderRes.data);
+          } else {
+            setActionMessage(orderRes.msg || '获取订单失败');
+          }
         } else {
-          setActionMessage(orderRes.msg || '获取订单失败');
+          setActionMessage('获取订单失败');
         }
 
-        if (String(historyRes.code) === '200') {
-          setUsageRecords(historyRes.data);
-        } else {
-          setActionMessage(historyRes.msg || '获取历史记录失败');
+        if (historyResult.status === 'fulfilled') {
+          const historyRes = historyResult.value;
+          if (String(historyRes.code) === '200' || String(historyRes.code) === '0') {
+            setUsageRecords(
+              historyRes.data.map((item) => ({
+                ...item,
+                userPhone: item.userPhone || currentUserPhone,
+              }))
+            );
+          } else {
+            setActionMessage(historyRes.msg || '获取历史记录失败');
+          }
         }
       } catch {
         setActionMessage('加载数据失败，请稍后重试');
@@ -101,8 +136,8 @@ export default function UserOrderCenter() {
       setActionMessage(deviceRes.msg || '获取设备失败');
     }
 
-    const orderRes = await getUserOrders(merchantId);
-    if (String(orderRes.code) !== '200') {
+    const orderRes = await getUserOrders({ phone: currentUserPhone, merchantId, pageNo: 1, pageSize: 50 });
+    if (String(orderRes.code) !== '200' && String(orderRes.code) !== '0') {
       setActionMessage(orderRes.msg || '获取订单失败');
       return;
     }
@@ -115,32 +150,62 @@ export default function UserOrderCenter() {
       return;
     }
 
-    const useRes = await useInstrument({
-      orderId,
-      deviceId: selectedDevice.id,
-    });
-    if (String(useRes.code) !== '200') {
-      setActionMessage(useRes.msg || '使用失败');
-      return;
-    }
+    try {
+      const useRes = await useInstrument({
+        orderId,
+        deviceId: selectedDevice.id,
+        machineNo: selectedDevice.machineNo,
+      });
+      const wrappedCode = (useRes as { code?: string | number }).code;
+      if (typeof wrappedCode !== 'undefined') {
+        if (String(wrappedCode) !== '200' && String(wrappedCode) !== '0') {
+          setActionMessage((useRes as { msg?: string }).msg || '使用失败');
+          return;
+        }
+      }
 
-    const [orderRes, historyRes] = await Promise.all([
-      getUserOrders(selectedMerchantId),
-      getUsageRecords(),
-    ]);
-    if (String(orderRes.code) === '200') {
-      setOrders(orderRes.data);
+      const [orderResult, historyResult] = await Promise.allSettled([
+        getUserOrders({ phone: currentUserPhone, merchantId: selectedMerchantId, pageNo: 1, pageSize: 50 }),
+        getUsageRecords({ phone: currentUserPhone, pageNo: 1, pageSize: 50 }),
+      ]);
+      if (
+        orderResult.status === 'fulfilled' &&
+        (String(orderResult.value.code) === '200' || String(orderResult.value.code) === '0')
+      ) {
+        setOrders(orderResult.value.data);
+      }
+      if (
+        historyResult.status === 'fulfilled' &&
+        (String(historyResult.value.code) === '200' || String(historyResult.value.code) === '0')
+      ) {
+      setUsageRecords(
+        historyResult.value.data.map((item) => ({
+          ...item,
+          userPhone: item.userPhone || currentUserPhone,
+        }))
+      );
+      }
+      setActionMessage((useRes as { msg?: string }).msg || `使用成功，订单ID：${orderId}`);
+      setActiveTab('history');
+    } catch {
+      setActionMessage('使用失败，请检查接口或网络');
     }
-    if (String(historyRes.code) === '200') {
-      setUsageRecords(historyRes.data);
-    }
-    setActionMessage(useRes.msg || `使用成功，设备ID：${selectedDevice.id}`);
-    setActiveTab('history');
   };
 
   return (
     <div className="w-full max-w-xl mx-auto px-4 py-5">
-      <h2 className="text-xl font-bold text-slate-800 mb-4">订单中心</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-bold text-slate-800">订单中心</h2>
+        <button
+          type="button"
+          onClick={() => {
+            void refreshCurrentData();
+          }}
+          className="rounded-lg border border-blue-200 px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-50"
+        >
+          刷新
+        </button>
+      </div>
       {loading && (
         <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
           数据加载中...
@@ -220,15 +285,15 @@ export default function UserOrderCenter() {
                 <p className="text-sm text-slate-500">商家：{order.merchantName}</p>
                 <p className="text-base font-semibold text-slate-800 mt-1">项目：{order.projectName}</p>
                 <p className="text-sm text-slate-600 mt-1">
-                  次数：共 {order.totalCount} 次，剩余 {order.remainingCount} 次
+                  使用次数：{order.totalCount} 次
                 </p>
                 <button
                   type="button"
                   onClick={() => handleUseInstrument(order.id)}
                   className="mt-3 w-full rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white py-2 text-sm font-medium transition-all disabled:bg-blue-300"
-                  disabled={order.remainingCount <= 0}
+                  disabled={order.totalCount <= 0}
                 >
-                  {order.remainingCount <= 0 ? '次数已用完' : '使用仪器'}
+                  {order.totalCount <= 0 ? '次数已用完' : '使用仪器'}
                 </button>
               </div>
             ))

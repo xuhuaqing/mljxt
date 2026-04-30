@@ -15,6 +15,7 @@ export interface LoginPayload {
 export interface MerchantDevice {
   id: string;
   name: string;
+  machineNo?: string;
 }
 
 interface MerchantDeviceByMerchantRaw {
@@ -71,6 +72,20 @@ export interface UsageRecord {
   deviceId: string;
   deviceName: string;
   usedAt: string;
+}
+
+interface UsageRecordQueryRaw {
+  orderId: number;
+  userId: number;
+  userPhone?: string;
+  phone?: string;
+  merchantId: number;
+  deviceName: string | null;
+  projectName: string;
+  projectDuration: number;
+  usageCount: number;
+  sportPerformance: number;
+  createdAt: string;
 }
 
 export interface ProjectCategory {
@@ -445,12 +460,17 @@ export async function login(payload: LoginPayload): Promise<ApiResponse<{ id: nu
     return mockLogin(payload);
   }
 
+  const requestBody = {
+    ...payload,
+    account: payload.phone,
+  };
+
   const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(requestBody),
   });
 
   return (await response.json()) as ApiResponse<boolean>;
@@ -485,32 +505,106 @@ export async function getMerchantOptions(keyword = ''): Promise<ApiResponse<Merc
   };
 }
 
-export async function getUserOrders(merchantId: string): Promise<ApiResponse<UserOrder[]>> {
+export async function getUserOrders(params: {
+  phone?: string;
+  userId?: number;
+  merchantId?: string;
+  deviceId?: string;
+  pageNo?: number;
+  pageSize?: number;
+}): Promise<ApiResponse<UserOrder[]>> {
   if (USE_MOCK_API) {
+    const merchantId = params.merchantId || '';
     return {
       code: 200,
       msg: 'ok',
-      data: mockOrders.filter((order) => order.merchantId === merchantId),
+      data: merchantId ? mockOrders.filter((order) => order.merchantId === merchantId) : mockOrders,
     };
   }
 
-  const response = await fetch(`${API_BASE_URL}/mljxt/orders?merchantId=${encodeURIComponent(merchantId)}`);
-  return (await response.json()) as ApiResponse<UserOrder[]>;
+  const query = new URLSearchParams();
+  if (params.phone?.trim()) query.set('phone', params.phone.trim());
+  if (params.userId && params.userId > 0) query.set('userId', String(params.userId));
+  if (params.merchantId && Number(params.merchantId) > 0) query.set('merchantId', String(Number(params.merchantId)));
+  if (params.deviceId && Number(params.deviceId) > 0) query.set('deviceId', String(Number(params.deviceId)));
+  query.set('pageNo', String(params.pageNo || 1));
+  query.set('pageSize', String(params.pageSize || 50));
+
+  const response = await fetch(`${API_BASE_URL}/api/order/order-records?${query.toString()}`);
+  const result = (await response.json()) as ApiResponse<{
+    records?: Array<{
+      orderId: number;
+      merchantId: number;
+      projectName: string;
+      usageCount: number;
+      createdAt?: string;
+    }>;
+  }>;
+  return {
+    ...result,
+    data: Array.isArray(result.data?.records)
+      ? result.data.records.map((item) => ({
+          id: String(item.orderId),
+          merchantId: String(item.merchantId),
+          merchantName: '',
+          projectName: item.projectName,
+          totalCount: item.usageCount,
+          remainingCount: item.usageCount,
+        }))
+      : [],
+  };
 }
 
-export async function getUsageRecords(): Promise<ApiResponse<UsageRecord[]>> {
+export async function getUsageRecords(params?: {
+  phone?: string;
+  userId?: number;
+  deviceId?: string;
+  pageNo?: number;
+  pageSize?: number;
+}): Promise<ApiResponse<UsageRecord[]>> {
   if (USE_MOCK_API) {
     return { code: 200, msg: 'ok', data: mockUsageRecords };
   }
 
-  const response = await fetch(`${API_BASE_URL}/mljxt/usage-records`);
-  return (await response.json()) as ApiResponse<UsageRecord[]>;
+  const query = new URLSearchParams();
+  if (params?.phone?.trim()) {
+    query.set('phone', params.phone.trim());
+  }
+  if (params?.userId && params.userId > 0) {
+    query.set('userId', String(params.userId));
+  }
+  if (params?.deviceId && Number(params.deviceId) > 0) {
+    query.set('deviceId', String(Number(params.deviceId)));
+  }
+  query.set('pageNo', String(params?.pageNo || 1));
+  query.set('pageSize', String(params?.pageSize || 50));
+
+  const response = await fetch(`${API_BASE_URL}/api/order/usage-records?${query.toString()}`);
+  const result = (await response.json()) as ApiResponse<{
+    records?: UsageRecordQueryRaw[];
+  }>;
+  return {
+    ...result,
+    data: Array.isArray(result.data?.records)
+      ? result.data.records.map((item) => ({
+          id: String(item.orderId),
+          orderId: String(item.orderId),
+          userPhone: item.userPhone || item.phone || '',
+          merchantName: '',
+          projectName: item.projectName,
+          deviceId: '',
+          deviceName: item.deviceName || '',
+          usedAt: item.createdAt,
+        }))
+      : [],
+  };
 }
 
 export async function useInstrument(payload: {
   orderId: string;
-  deviceId: string;
-}): Promise<ApiResponse<{ remainingCount: number }>> {
+  deviceId?: string;
+  machineNo?: string;
+}): Promise<ApiResponse<{ remainingCount: number }> | Record<string, unknown>> {
   if (USE_MOCK_API) {
     const orderIndex = mockOrders.findIndex((order) => order.id === payload.orderId);
     if (orderIndex < 0) {
@@ -526,7 +620,7 @@ export async function useInstrument(payload: {
 
     const updatedOrder = mockOrders[orderIndex];
     const merchant = mockMerchants.find((item) => item.id === updatedOrder.merchantId);
-    const device = merchant?.devices.find((item) => item.id === payload.deviceId);
+    const device = merchant?.devices[0];
     mockUsageRecords = [
       {
         id: `${Date.now()}`,
@@ -534,8 +628,8 @@ export async function useInstrument(payload: {
         userPhone: '17612714215',
         merchantName: updatedOrder.merchantName,
         projectName: updatedOrder.projectName,
-        deviceId: payload.deviceId,
-        deviceName: device?.name || payload.deviceId,
+        deviceId: device?.id || '',
+        deviceName: device?.name || '',
         usedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
       },
       ...mockUsageRecords,
@@ -543,19 +637,30 @@ export async function useInstrument(payload: {
 
     return {
       code: 200,
-      msg: `使用成功，设备ID：${payload.deviceId}`,
+      msg: `使用成功，订单ID：${payload.orderId}`,
       data: { remainingCount: updatedOrder.remainingCount },
     };
   }
 
-  const response = await fetch(`${API_BASE_URL}/mljxt/use-instrument`, {
+  const requestBody: { orderId: number; deviceId?: number; machineNo?: number } = {
+    orderId: Number(payload.orderId),
+  };
+  if (payload.deviceId && Number(payload.deviceId) > 0) {
+    requestBody.deviceId = Number(payload.deviceId);
+  }
+  if (payload.machineNo && Number(payload.machineNo) >= 0) {
+    requestBody.machineNo = Number(payload.machineNo);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/hardware/send-by-order`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(requestBody),
   });
-  return (await response.json()) as ApiResponse<{ remainingCount: number }>;
+  const result = (await response.json()) as ApiResponse<{ remainingCount: number }> | Record<string, unknown>;
+  return result;
 }
 
 export async function getProjectCategories(): Promise<ApiResponse<ProjectCategory[]>> {
@@ -742,6 +847,7 @@ export async function getDevicesByMerchantId(merchantId: string): Promise<ApiRes
           .map((item) => ({
             id: String(item.id),
             name: item.deviceName || item.machineNo,
+            machineNo: item.machineNo,
           }))
       : [],
   };
@@ -884,7 +990,7 @@ export async function getDeveloperDevices(developerId: string): Promise<ApiRespo
           deviceId: String(item.deviceId),
           deviceName: item.deviceName || item.machineNo,
           freeExpireAt: item.freeUseDeadline || '-',
-          merchantUsageCount: item.merchantTotalDeviceUsageCount ?? item.remainingUseCount ?? 0,
+          merchantUsageCount: item.merchantTotalDeviceUsageCount ?? 0,
         }))
       : [],
   };

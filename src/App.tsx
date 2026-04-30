@@ -13,6 +13,7 @@ export default function App() {
         onLogout={() => {
           window.localStorage.removeItem('currentUserId');
           window.localStorage.removeItem('currentUserRole');
+          window.localStorage.removeItem('currentUserPhone');
           window.localStorage.removeItem('currentMerchantRemainingUseCount');
           setLoggedInRole(null);
         }}
