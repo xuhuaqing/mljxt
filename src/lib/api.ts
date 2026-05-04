@@ -210,7 +210,7 @@ interface WithdrawRecordPageRaw {
   records: CreateWithdrawRaw[];
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8877';
+const API_BASE_URL = 'https://mljxt.1mmkj.com';
 // 是否使用mock数据
 const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true';
 
