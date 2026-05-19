@@ -13,6 +13,7 @@ import {
 
 export default function UserOrderCenter() {
   const currentUserPhone = window.localStorage.getItem('currentUserPhone') || '';
+  const currentUserId = Number(window.localStorage.getItem('currentUserId') || 0);
   const [devices, setDevices] = useState<MerchantDevice[]>([]);
   const [merchantOptions, setMerchantOptions] = useState<MerchantOption[]>([]);
   const [selectedMerchantId, setSelectedMerchantId] = useState('');
@@ -60,7 +61,10 @@ export default function UserOrderCenter() {
     const loadInitData = async () => {
       setLoading(true);
       try {
-        const merchantOptionRes = await getMerchantOptions();
+        const merchantOptionRes = await getMerchantOptions({
+          ...(currentUserId > 0 ? { userId: currentUserId } : {}),
+          ...(currentUserPhone ? { phone: currentUserPhone } : {}),
+        });
         if (
           (String(merchantOptionRes.code) !== '0' && String(merchantOptionRes.code) !== '200') ||
           merchantOptionRes.data.length === 0

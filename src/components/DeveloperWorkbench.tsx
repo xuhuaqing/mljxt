@@ -67,7 +67,7 @@ export default function DeveloperWorkbench() {
       try {
         await Promise.all([loadDevices(), loadWithdrawRecords()]);
       } catch {
-        setMessage('加载开发端数据失败');
+        setMessage('加载合伙人端数据失败');
       } finally {
         setLoading(false);
       }
@@ -94,7 +94,7 @@ export default function DeveloperWorkbench() {
   return (
     <div className="w-full max-w-2xl mx-auto px-2 py-3">
       <div className="mb-4 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-blue-600 px-4 py-4 text-white shadow-sm">
-        <h2 className="text-lg font-semibold mt-1">开发工作台</h2>
+        <h2 className="text-lg font-semibold mt-1">合伙人工作台</h2>
         <p className="text-xs text-indigo-100 mt-1">店铺设备总览与提现管理</p>
       </div>
 
@@ -171,7 +171,7 @@ export default function DeveloperWorkbench() {
                     {merchantDevices.map((device) => (
                       <div key={device.deviceId} className="rounded-xl border border-slate-100 px-3 py-2 bg-slate-50/50">
                         <p className="text-sm text-slate-800 font-medium">{device.deviceName}</p>
-                        <p className="text-xs text-slate-500 mt-1">设备ID：{device.deviceId}</p>
+                        <p className="text-xs text-slate-500 mt-1">设备编号：{device.deviceId}</p>
                         <p className="text-xs text-slate-500 mt-1">免费到期时间：{device.freeExpireAt}</p>
                       </div>
                     ))}

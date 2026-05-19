@@ -13,7 +13,7 @@ const roles: RoleOption[] = [
   { value: 'user', label: '用户', color: 'bg-blue-500' },
   { value: 'teacher', label: '老师', color: 'bg-emerald-500' },
   { value: 'merchant', label: '商家', color: 'bg-orange-500' },
-  { value: 'developer', label: '开发', color: 'bg-violet-500' },
+  { value: 'developer', label: '合伙人', color: 'bg-violet-500' },
 ];
 
 interface LoginPageProps {

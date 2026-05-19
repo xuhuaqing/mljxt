@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import TopToast from './TopToast';
 import {
   createTeacherOrder,
   getMerchantDevices,
@@ -28,8 +29,15 @@ function formatDateTime(value: string): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
-const defaultOrderForm: Omit<TeacherOrderPayload, 'merchantId' | 'projectName'> = {
+type OrderFormState = Omit<TeacherOrderPayload, 'merchantId' | 'projectName' | 'age' | 'height' | 'weight'> & {
+  age: number | '';
+  height: number | '';
+  weight: number | '';
+};
+
+const defaultOrderForm: OrderFormState = {
   phone: '',
+  name: '',
   gender: '女',
   age: 25,
   height: 165,
@@ -38,6 +46,8 @@ const defaultOrderForm: Omit<TeacherOrderPayload, 'merchantId' | 'projectName'> 
   exercisePerformance: 0,
   durationMinutes: 45,
 };
+
+const parseBodyMetric = (value: string): number | '' => (value === '' ? '' : Number(value));
 
 export default function MerchantWorkbench() {
   const currentMerchantId = window.localStorage.getItem('currentUserId') || '';
@@ -63,7 +73,7 @@ export default function MerchantWorkbench() {
 
   useEffect(() => {
     if (!message) return;
-    const timer = window.setTimeout(() => setMessage(''), 3000);
+    const timer = window.setTimeout(() => setMessage(''), 4000);
     return () => window.clearTimeout(timer);
   }, [message]);
 
@@ -194,6 +204,10 @@ export default function MerchantWorkbench() {
   }, [currentMerchantId, currentMerchantRemainingUseCount]);
 
   const handleSubmitOrder = async () => {
+    if (!orderForm.name.trim()) {
+      setMessage('用户姓名不能为空');
+      return;
+    }
     if (!/^1[3-9]\d{9}$/.test(orderForm.phone)) {
       setMessage('请输入有效手机号');
       return;
@@ -206,9 +220,16 @@ export default function MerchantWorkbench() {
       setMessage('未获取到当前商家信息');
       return;
     }
+    if (orderForm.age === '' || orderForm.height === '' || orderForm.weight === '') {
+      setMessage('请填写年龄、身高和体重');
+      return;
+    }
 
     const payload: TeacherOrderPayload = {
       ...orderForm,
+      age: orderForm.age,
+      height: orderForm.height,
+      weight: orderForm.weight,
       merchantId: orderMerchantId,
       projectName: selectedProject,
     };
@@ -222,11 +243,12 @@ export default function MerchantWorkbench() {
     const createdMsg =
       result.data?.newUserCreated && result.data.initialPassword
         ? `下单成功，已自动创建用户，初始密码：${result.data.initialPassword}`
-        : result.msg || '下单成功';
-    setMessage(createdMsg);
+        : '下单成功';
     setShowOrderDetail(false);
     setSelectedProject('');
     setOrderForm(defaultOrderForm);
+    setMessage(createdMsg);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -241,11 +263,7 @@ export default function MerchantWorkbench() {
           数据加载中...
         </div>
       )}
-      {message && (
-        <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700">
-          {message}
-        </div>
-      )}
+      <TopToast message={message} />
 
       <div className="grid grid-cols-3 gap-2 mb-4 rounded-2xl bg-white p-2 border border-slate-200 shadow-sm">
         <button
@@ -303,7 +321,7 @@ export default function MerchantWorkbench() {
               <div key={device.deviceId} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                 <div>
                   <p className="text-sm text-slate-800 font-medium">{device.deviceName}</p>
-                  <p className="text-xs text-slate-500 mt-1">设备ID：{device.deviceId}</p>
+                  <p className="text-xs text-slate-500 mt-1">设备编号：{device.deviceId}</p>
                   <p className="text-xs text-slate-500 mt-1">免费到期时间：{formatDateTime(device.freeExpireAt)}</p>
                 </div>
               </div>
@@ -314,13 +332,13 @@ export default function MerchantWorkbench() {
 
       {activeTab === 'records' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-3 border-b border-slate-100 flex items-center gap-2">
+          <div className="p-3 border-b border-slate-100 flex flex-col gap-2 sm:flex-row sm:items-center">
             <select
               value={consumeDeviceFilterId}
               onChange={async (e) => {
                 await loadConsumeRecords({ deviceId: e.target.value, pageNo: 1 });
               }}
-              className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+              className="w-full shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30 sm:w-40"
             >
               <option value="">全部设备</option>
               {devices.map((device) => (
@@ -329,21 +347,23 @@ export default function MerchantWorkbench() {
                 </option>
               ))}
             </select>
-            <input
-              value={consumeSearchPhone}
-              onChange={(e) => setConsumeSearchPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-              placeholder="按手机号搜索"
-              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
-            />
-            <button
-              type="button"
-              onClick={async () => {
-                await loadConsumeRecords({ pageNo: 1, phone: consumeSearchPhone });
-              }}
-              className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600"
-            >
-              搜索
-            </button>
+            <div className="flex min-w-0 gap-2 sm:flex-1">
+              <input
+                value={consumeSearchPhone}
+                onChange={(e) => setConsumeSearchPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                placeholder="按手机号搜索"
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  await loadConsumeRecords({ pageNo: 1, phone: consumeSearchPhone });
+                }}
+                className="shrink-0 whitespace-nowrap rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600"
+              >
+                搜索
+              </button>
+            </div>
           </div>
           {consumeRecords.length === 0 ? (
             <div className="text-sm text-slate-500 text-center py-8">暂无订单消耗记录</div>
@@ -443,11 +463,20 @@ export default function MerchantWorkbench() {
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-sm">
               <p className="text-base font-semibold text-slate-800">下单详情</p>
 
-              <label className="block text-xs text-slate-500 mb-1">下单用户手机号</label>
+              <label className="block text-xs text-slate-500 mb-1">用户姓名</label>
+              <input
+                value={orderForm.name}
+                onChange={(e) => setOrderForm((prev) => ({ ...prev, name: e.target.value.trimStart() }))}
+                placeholder="请输入用户姓名"
+                maxLength={32}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+              />
+
+              <label className="block text-xs text-slate-500 mb-1">手机号</label>
               <input
                 value={orderForm.phone}
                 onChange={(e) => setOrderForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
-                placeholder="下单用户手机号"
+                placeholder="请输入手机号"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
               />
 
@@ -467,8 +496,8 @@ export default function MerchantWorkbench() {
                   <label className="block text-xs text-slate-500 mb-1">年龄</label>
                 <input
                   type="number"
-                  value={orderForm.age}
-                  onChange={(e) => setOrderForm((prev) => ({ ...prev, age: Number(e.target.value) || 0 }))}
+                  value={orderForm.age === '' ? '' : orderForm.age}
+                  onChange={(e) => setOrderForm((prev) => ({ ...prev, age: parseBodyMetric(e.target.value) }))}
                   placeholder="年龄"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
                 />
@@ -480,8 +509,8 @@ export default function MerchantWorkbench() {
                   <label className="block text-xs text-slate-500 mb-1">身高(cm)</label>
                 <input
                   type="number"
-                  value={orderForm.height}
-                  onChange={(e) => setOrderForm((prev) => ({ ...prev, height: Number(e.target.value) || 0 }))}
+                  value={orderForm.height === '' ? '' : orderForm.height}
+                  onChange={(e) => setOrderForm((prev) => ({ ...prev, height: parseBodyMetric(e.target.value) }))}
                   placeholder="身高(cm)"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
                 />
@@ -490,8 +519,8 @@ export default function MerchantWorkbench() {
                   <label className="block text-xs text-slate-500 mb-1">体重(kg)</label>
                 <input
                   type="number"
-                  value={orderForm.weight}
-                  onChange={(e) => setOrderForm((prev) => ({ ...prev, weight: Number(e.target.value) || 0 }))}
+                  value={orderForm.weight === '' ? '' : orderForm.weight}
+                  onChange={(e) => setOrderForm((prev) => ({ ...prev, weight: parseBodyMetric(e.target.value) }))}
                   placeholder="体重(kg)"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
                 />

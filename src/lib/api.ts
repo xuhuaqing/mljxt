@@ -101,6 +101,7 @@ export interface ProjectItem {
 
 export interface TeacherOrderPayload {
   phone: string;
+  name: string;
   gender: '男' | '女';
   age: number;
   height: number;
@@ -210,7 +211,7 @@ interface WithdrawRecordPageRaw {
   records: CreateWithdrawRaw[];
 }
 
-const API_BASE_URL = 'https://mljxt.1mmkj.com';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://mljxt.1mmkj.com';
 // 是否使用mock数据
 const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true';
 
@@ -433,7 +434,7 @@ async function mockLogin(payload: LoginPayload): Promise<ApiResponse<{ id: numbe
       1: '用户',
       2: '老师',
       3: '商家',
-      4: '开发',
+      4: '合伙人',
     };
     return {
       code: '0',
@@ -476,10 +477,23 @@ export async function login(payload: LoginPayload): Promise<ApiResponse<{ id: nu
   return (await response.json()) as ApiResponse<boolean>;
 }
 
-export async function getMerchantOptions(keyword = ''): Promise<ApiResponse<MerchantOption[]>> {
+export async function getMerchantOptions(options: {
+  keyword?: string;
+  userId?: number;
+  phone?: string;
+} = {}): Promise<ApiResponse<MerchantOption[]>> {
+  const keyword = options.keyword ?? '';
+  const userId = options.userId;
+  const phone = options.phone?.trim() ?? '';
+
   if (USE_MOCK_API) {
     const normalizedKeyword = keyword.trim();
+    const scopedByUser = (userId && userId > 0) || phone.length > 0;
+    const merchantIdsWithOrders = scopedByUser
+      ? new Set(mockOrders.map((order) => order.merchantId))
+      : null;
     const data = mockMerchants
+      .filter((item) => (merchantIdsWithOrders ? merchantIdsWithOrders.has(item.id) : true))
       .filter((item) => (normalizedKeyword ? item.name.includes(normalizedKeyword) : true))
       .slice(0, 100)
       .map((item) => ({ id: item.id, name: item.name }));
@@ -489,6 +503,12 @@ export async function getMerchantOptions(keyword = ''): Promise<ApiResponse<Merc
   const query = new URLSearchParams();
   if (keyword.trim()) {
     query.set('keyword', keyword.trim());
+  }
+  if (userId && userId > 0) {
+    query.set('userId', String(userId));
+  }
+  if (phone) {
+    query.set('phone', phone);
   }
   const queryString = query.toString();
   const url = `${API_BASE_URL}/api/merchant/options${queryString ? `?${queryString}` : ''}`;
@@ -678,6 +698,9 @@ export async function getProjectCategories(): Promise<ApiResponse<ProjectCategor
 
 export async function createTeacherOrder(payload: TeacherOrderPayload): Promise<ApiResponse<CreateOrderResult>> {
   if (USE_MOCK_API) {
+    if (!payload.name.trim()) {
+      return { code: '400', msg: '用户姓名不能为空', data: null as unknown as CreateOrderResult };
+    }
     const orderId = Date.now();
     return {
       code: '0',
@@ -698,6 +721,7 @@ export async function createTeacherOrder(payload: TeacherOrderPayload): Promise<
 
   const requestBody = {
     phone: payload.phone,
+    name: payload.name.trim(),
     gender: payload.gender === '男' ? 0 : 1,
     age: payload.age,
     height: payload.height,

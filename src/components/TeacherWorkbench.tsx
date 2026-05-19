@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import TopToast from './TopToast';
 import {
   bindTeacherDevice,
   createTeacherOrder,
@@ -30,8 +31,15 @@ function formatDateTime(value: string): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
-const defaultOrderForm: Omit<TeacherOrderPayload, 'merchantId' | 'projectName'> = {
+type OrderFormState = Omit<TeacherOrderPayload, 'merchantId' | 'projectName' | 'age' | 'height' | 'weight'> & {
+  age: number | '';
+  height: number | '';
+  weight: number | '';
+};
+
+const defaultOrderForm: OrderFormState = {
   phone: '',
+  name: '',
   gender: '女',
   age: 25,
   height: 165,
@@ -40,6 +48,8 @@ const defaultOrderForm: Omit<TeacherOrderPayload, 'merchantId' | 'projectName'> 
   exercisePerformance: 0,
   durationMinutes: 45,
 };
+
+const parseBodyMetric = (value: string): number | '' => (value === '' ? '' : Number(value));
 
 export default function TeacherWorkbench() {
   const teacherId = Number(window.localStorage.getItem('currentUserId') || 0);
@@ -71,7 +81,7 @@ export default function TeacherWorkbench() {
 
   useEffect(() => {
     if (!message) return;
-    const timer = window.setTimeout(() => setMessage(''), 3000);
+    const timer = window.setTimeout(() => setMessage(''), 4000);
     return () => window.clearTimeout(timer);
   }, [message]);
 
@@ -187,7 +197,7 @@ export default function TeacherWorkbench() {
   useEffect(() => {
     const timer = window.setTimeout(async () => {
       try {
-        const optionRes = await getMerchantOptions(orderMerchantKeyword);
+        const optionRes = await getMerchantOptions({ keyword: orderMerchantKeyword });
         if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
           setOrderMerchantOptions(optionRes.data);
         } else {
@@ -203,7 +213,7 @@ export default function TeacherWorkbench() {
   useEffect(() => {
     const timer = window.setTimeout(async () => {
       try {
-        const optionRes = await getMerchantOptions(bindMerchantKeyword);
+        const optionRes = await getMerchantOptions({ keyword: bindMerchantKeyword });
         if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
           setBindMerchantOptions(optionRes.data);
         } else {
@@ -220,7 +230,7 @@ export default function TeacherWorkbench() {
     if (!showOrderMerchantDropdown) return;
     void (async () => {
       try {
-        const optionRes = await getMerchantOptions(orderMerchantKeyword);
+        const optionRes = await getMerchantOptions({ keyword: orderMerchantKeyword });
         if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
           setOrderMerchantOptions(optionRes.data);
         } else {
@@ -236,7 +246,7 @@ export default function TeacherWorkbench() {
     if (!showBindMerchantDropdown) return;
     void (async () => {
       try {
-        const optionRes = await getMerchantOptions(bindMerchantKeyword);
+        const optionRes = await getMerchantOptions({ keyword: bindMerchantKeyword });
         if (String(optionRes.code) === '0' || String(optionRes.code) === '200') {
           setBindMerchantOptions(optionRes.data);
         } else {
@@ -296,6 +306,10 @@ export default function TeacherWorkbench() {
   }, [bindMerchantId]);
 
   const handleSubmitOrder = async () => {
+    if (!orderForm.name.trim()) {
+      setMessage('用户姓名不能为空');
+      return;
+    }
     if (!/^1[3-9]\d{9}$/.test(orderForm.phone)) {
       setMessage('请输入有效手机号');
       return;
@@ -308,9 +322,16 @@ export default function TeacherWorkbench() {
       setMessage('请选择商家');
       return;
     }
+    if (orderForm.age === '' || orderForm.height === '' || orderForm.weight === '') {
+      setMessage('请填写年龄、身高和体重');
+      return;
+    }
 
     const payload: TeacherOrderPayload = {
       ...orderForm,
+      age: orderForm.age,
+      height: orderForm.height,
+      weight: orderForm.weight,
       merchantId: orderMerchantId,
       projectName: selectedProject,
     };
@@ -324,11 +345,12 @@ export default function TeacherWorkbench() {
     const createdMsg =
       result.data?.newUserCreated && result.data.initialPassword
         ? `下单成功，已自动创建用户，初始密码：${result.data.initialPassword}`
-        : result.msg || '下单成功';
-    setMessage(createdMsg);
+        : '下单成功';
     setShowOrderDetail(false);
     setSelectedProject('');
     setOrderForm(defaultOrderForm);
+    setMessage(createdMsg);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleBindDevice = async () => {
@@ -391,11 +413,7 @@ export default function TeacherWorkbench() {
           数据加载中...
         </div>
       )}
-      {message && (
-        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-          {message}
-        </div>
-      )}
+      <TopToast message={message} />
 
       <div className="grid grid-cols-3 gap-2 mb-4 rounded-2xl bg-white p-2 border border-slate-200 shadow-sm">
         <button
@@ -475,11 +493,20 @@ export default function TeacherWorkbench() {
                 <p className="text-base font-semibold text-slate-800">下单详情</p>
               </div>
 
-              <label className="block text-xs text-slate-500 mb-1">下单用户手机号</label>
+              <label className="block text-xs text-slate-500 mb-1">用户姓名</label>
+              <input
+                value={orderForm.name}
+                onChange={(e) => setOrderForm((prev) => ({ ...prev, name: e.target.value.trimStart() }))}
+                placeholder="请输入用户姓名"
+                maxLength={32}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              />
+
+              <label className="block text-xs text-slate-500 mb-1">手机号</label>
               <input
                 value={orderForm.phone}
                 onChange={(e) => setOrderForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
-                placeholder="下单用户手机号"
+                placeholder="请输入手机号"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               />
 
@@ -499,8 +526,8 @@ export default function TeacherWorkbench() {
                   <label className="block text-xs text-slate-500 mb-1">年龄</label>
                 <input
                   type="number"
-                  value={orderForm.age}
-                  onChange={(e) => setOrderForm((prev) => ({ ...prev, age: Number(e.target.value) || 0 }))}
+                  value={orderForm.age === '' ? '' : orderForm.age}
+                  onChange={(e) => setOrderForm((prev) => ({ ...prev, age: parseBodyMetric(e.target.value) }))}
                   placeholder="年龄"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                 />
@@ -512,8 +539,8 @@ export default function TeacherWorkbench() {
                   <label className="block text-xs text-slate-500 mb-1">身高(cm)</label>
                 <input
                   type="number"
-                  value={orderForm.height}
-                  onChange={(e) => setOrderForm((prev) => ({ ...prev, height: Number(e.target.value) || 0 }))}
+                  value={orderForm.height === '' ? '' : orderForm.height}
+                  onChange={(e) => setOrderForm((prev) => ({ ...prev, height: parseBodyMetric(e.target.value) }))}
                   placeholder="身高(cm)"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                 />
@@ -522,8 +549,8 @@ export default function TeacherWorkbench() {
                   <label className="block text-xs text-slate-500 mb-1">体重(kg)</label>
                 <input
                   type="number"
-                  value={orderForm.weight}
-                  onChange={(e) => setOrderForm((prev) => ({ ...prev, weight: Number(e.target.value) || 0 }))}
+                  value={orderForm.weight === '' ? '' : orderForm.weight}
+                  onChange={(e) => setOrderForm((prev) => ({ ...prev, weight: parseBodyMetric(e.target.value) }))}
                   placeholder="体重(kg)"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                 />
@@ -762,7 +789,7 @@ export default function TeacherWorkbench() {
                   <p className="text-sm text-slate-700 mt-1">{item.deviceName}</p>
                   <p className="mt-2 text-xs text-slate-600">使用次数：{item.usageCount}</p>
                   <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                    <span>ID: {item.deviceId}</span>
+                    <span>设备编号：{item.deviceId}</span>
                     <span>{formatDateTime(item.boundAt)}</span>
                   </div>
                 </button>
