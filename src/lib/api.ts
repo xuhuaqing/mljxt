@@ -903,6 +903,17 @@ export async function getMerchantDevices(merchantId: string): Promise<ApiRespons
   };
 }
 
+export async function manualRefreshDevice(deviceId: number): Promise<ApiResponse<null>> {
+  if (USE_MOCK_API) {
+    return { code: '0', msg: 'success', data: null };
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/device/${deviceId}/manual-refresh`, {
+    method: 'PUT',
+  });
+  return (await response.json()) as ApiResponse<null>;
+}
+
 export interface UsageRecordPageResult {
   records: UsageRecord[];
   total: number;

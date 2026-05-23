@@ -7,6 +7,7 @@ import {
   getMerchantRemainingCount,
   getMerchantOrderConsumeRecords,
   getProjectCategories,
+  manualRefreshDevice,
   MerchantOption,
   MerchantDeviceSummary,
   ProjectCategory,
@@ -65,6 +66,7 @@ export default function MerchantWorkbench() {
   const [showOrderDetail, setShowOrderDetail] = useState(false);
   const [orderForm, setOrderForm] = useState(defaultOrderForm);
   const [orderMerchantId, setOrderMerchantId] = useState('');
+  const [refreshingDeviceId, setRefreshingDeviceId] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [consumePageNo, setConsumePageNo] = useState(1);
@@ -251,6 +253,22 @@ export default function MerchantWorkbench() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleManualRefresh = async (deviceId: string) => {
+    setRefreshingDeviceId(deviceId);
+    try {
+      const result = await manualRefreshDevice(Number(deviceId));
+      if (String(result.code) === '200' || String(result.code) === '0') {
+        setMessage('设备已刷新，可重新下单');
+      } else {
+        setMessage(result.msg || '设备刷新失败');
+      }
+    } catch {
+      setMessage('设备刷新失败');
+    } finally {
+      setRefreshingDeviceId('');
+    }
+  };
+
   return (
     <div className="w-full max-w-2xl mx-auto px-2 py-3">
       <div className="mb-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 px-4 py-4 text-white shadow-sm">
@@ -319,10 +337,22 @@ export default function MerchantWorkbench() {
           ) : (
             devices.map((device) => (
               <div key={device.deviceId} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <div>
-                  <p className="text-sm text-slate-800 font-medium">{device.deviceName}</p>
-                  <p className="text-xs text-slate-500 mt-1">设备编号：{device.deviceId}</p>
-                  <p className="text-xs text-slate-500 mt-1">免费到期时间：{formatDateTime(device.freeExpireAt)}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-slate-800 font-medium">{device.deviceName}</p>
+                    <p className="text-xs text-slate-500 mt-1">设备编号：{device.deviceId}</p>
+                    <p className="text-xs text-slate-500 mt-1">免费到期时间：{formatDateTime(device.freeExpireAt)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={refreshingDeviceId === device.deviceId}
+                    onClick={() => {
+                      void handleManualRefresh(device.deviceId);
+                    }}
+                    className="shrink-0 whitespace-nowrap rounded-lg border border-orange-200 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-40"
+                  >
+                    {refreshingDeviceId === device.deviceId ? '刷新中...' : '刷新'}
+                  </button>
                 </div>
               </div>
             ))
