@@ -14,26 +14,20 @@ import {
   TeacherOrderPayload,
   UsageRecord,
 } from '../lib/api';
+import { formatDateTime } from '../lib/formatDateTime';
+import {
+  isFixedDurationCategory,
+  MERCHANT_HIDDEN_CATEGORY_NAMES,
+  parseUsageCountInput,
+} from '../lib/orderConstraints';
 
 type MerchantTab = 'devices' | 'records' | 'order';
 
-function formatDateTime(value: string): string {
-  if (!value || value === '-') return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mi = String(date.getMinutes()).padStart(2, '0');
-  const ss = String(date.getSeconds()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
-
-type OrderFormState = Omit<TeacherOrderPayload, 'merchantId' | 'projectName' | 'age' | 'height' | 'weight'> & {
+type OrderFormState = Omit<TeacherOrderPayload, 'merchantId' | 'projectName' | 'age' | 'height' | 'weight' | 'usageCount'> & {
   age: number | '';
   height: number | '';
   weight: number | '';
+  usageCount: number | '';
 };
 
 const defaultOrderForm: OrderFormState = {
@@ -63,6 +57,7 @@ export default function MerchantWorkbench() {
   const [consumeDeviceFilterId, setConsumeDeviceFilterId] = useState('');
 
   const [selectedProject, setSelectedProject] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [showOrderDetail, setShowOrderDetail] = useState(false);
   const [orderForm, setOrderForm] = useState(defaultOrderForm);
   const [orderMerchantId, setOrderMerchantId] = useState('');
@@ -82,6 +77,13 @@ export default function MerchantWorkbench() {
   const selectedOrderMerchantName = useMemo(
     () => merchantOptions.find((item) => item.id === orderMerchantId)?.name || '当前登录商家',
     [merchantOptions, orderMerchantId]
+  );
+  const visibleProjectCategories = useMemo(
+    () =>
+      projectCategories.filter(
+        (category) => !MERCHANT_HIDDEN_CATEGORY_NAMES.includes(category.categoryName)
+      ),
+    [projectCategories]
   );
   const consumeTotalPages = Math.max(1, Math.ceil(consumeTotal / consumePageSize));
 
@@ -226,12 +228,17 @@ export default function MerchantWorkbench() {
       setMessage('请填写年龄、身高和体重');
       return;
     }
+    if (orderForm.usageCount === '' || orderForm.usageCount < 1) {
+      setMessage('请填写有效的使用次数');
+      return;
+    }
 
     const payload: TeacherOrderPayload = {
       ...orderForm,
       age: orderForm.age,
       height: orderForm.height,
       weight: orderForm.weight,
+      usageCount: orderForm.usageCount,
       merchantId: orderMerchantId,
       projectName: selectedProject,
     };
@@ -248,6 +255,7 @@ export default function MerchantWorkbench() {
         : '下单成功';
     setShowOrderDetail(false);
     setSelectedProject('');
+    setSelectedCategory('');
     setOrderForm(defaultOrderForm);
     setMessage(createdMsg);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -258,12 +266,12 @@ export default function MerchantWorkbench() {
     try {
       const result = await manualRefreshDevice(Number(deviceId));
       if (String(result.code) === '200' || String(result.code) === '0') {
-        setMessage('设备已刷新，可重新下单');
+        setMessage('时间已清零，可重新下单');
       } else {
-        setMessage(result.msg || '设备刷新失败');
+        setMessage(result.msg || '时间清零失败');
       }
     } catch {
-      setMessage('设备刷新失败');
+      setMessage('时间清零失败');
     } finally {
       setRefreshingDeviceId('');
     }
@@ -351,7 +359,7 @@ export default function MerchantWorkbench() {
                     }}
                     className="shrink-0 whitespace-nowrap rounded-lg border border-orange-200 px-3 py-1.5 text-xs font-medium text-orange-700 hover:bg-orange-50 disabled:opacity-40"
                   >
-                    {refreshingDeviceId === device.deviceId ? '刷新中...' : '刷新'}
+                    {refreshingDeviceId === device.deviceId ? '清零中...' : '时间清零'}
                   </button>
                 </div>
               </div>
@@ -465,7 +473,7 @@ export default function MerchantWorkbench() {
       {activeTab === 'order' && (
         <div className="space-y-3">
           {!showOrderDetail ? (
-            projectCategories.map((category) => (
+            visibleProjectCategories.map((category) => (
               <div key={category.categoryName} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-semibold text-slate-800">{category.categoryName}</p>
@@ -478,6 +486,8 @@ export default function MerchantWorkbench() {
                       type="button"
                       onClick={() => {
                         setSelectedProject(project.name);
+                        setSelectedCategory(category.categoryName);
+                        setOrderForm((prev) => ({ ...prev, durationMinutes: 45, usageCount: 1 }));
                         setShowOrderDetail(true);
                         setMessage('');
                       }}
@@ -584,21 +594,30 @@ export default function MerchantWorkbench() {
               <input
                 type="number"
                 value={orderForm.durationMinutes}
-                onChange={(e) => setOrderForm((prev) => ({ ...prev, durationMinutes: Number(e.target.value) || 45 }))}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+                readOnly={isFixedDurationCategory(selectedCategory)}
+                onChange={(e) => {
+                  if (isFixedDurationCategory(selectedCategory)) return;
+                  setOrderForm((prev) => ({ ...prev, durationMinutes: Number(e.target.value) || 45 }));
+                }}
+                className={`w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30 ${
+                  isFixedDurationCategory(selectedCategory)
+                    ? 'border-orange-200 bg-orange-50 text-orange-800'
+                    : 'border-slate-200'
+                }`}
               />
 
               <label className="block text-xs text-slate-500 mb-1">使用次数</label>
               <input
-                type="number"
-                min={1}
-                value={orderForm.usageCount}
+                type="text"
+                inputMode="numeric"
+                value={orderForm.usageCount === '' ? '' : orderForm.usageCount}
                 onChange={(e) =>
                   setOrderForm((prev) => ({
                     ...prev,
-                    usageCount: Math.max(1, Number(e.target.value) || 1),
+                    usageCount: parseUsageCountInput(e.target.value),
                   }))
                 }
+                placeholder="请输入使用次数"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/30"
               />
 
@@ -612,7 +631,10 @@ export default function MerchantWorkbench() {
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setShowOrderDetail(false)}
+                  onClick={() => {
+                    setShowOrderDetail(false);
+                    setSelectedCategory('');
+                  }}
                   className="rounded-xl py-2 text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200"
                 >
                   返回选项目

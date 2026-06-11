@@ -6,6 +6,7 @@ import {
   getWithdrawRecords,
   WithdrawRecord,
 } from '../lib/api';
+import { formatDateTime } from '../lib/formatDateTime';
 
 type DeveloperTab = 'devices' | 'withdraw';
 
@@ -172,7 +173,7 @@ export default function DeveloperWorkbench() {
                       <div key={device.deviceId} className="rounded-xl border border-slate-100 px-3 py-2 bg-slate-50/50">
                         <p className="text-sm text-slate-800 font-medium">{device.deviceName}</p>
                         <p className="text-xs text-slate-500 mt-1">设备编号：{device.deviceId}</p>
-                        <p className="text-xs text-slate-500 mt-1">免费到期时间：{device.freeExpireAt}</p>
+                        <p className="text-xs text-slate-500 mt-1">免费到期时间：{formatDateTime(device.freeExpireAt)}</p>
                       </div>
                     ))}
                   </div>
@@ -191,7 +192,7 @@ export default function DeveloperWorkbench() {
             <div className="divide-y divide-slate-100">
               {withdrawRecords.map((record) => (
                 <div key={record.id} className="p-3">
-                  <p className="text-sm text-slate-800 font-medium">提现点击时间：{record.clickedAt}</p>
+                  <p className="text-sm text-slate-800 font-medium">提现点击时间：{formatDateTime(record.clickedAt)}</p>
                   <p className="text-xs text-slate-600 mt-1">提现时设备使用次数：{record.usageCount}</p>
                 </div>
               ))}

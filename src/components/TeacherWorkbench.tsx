@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import TopToast from './TopToast';
 import {
   bindTeacherDevice,
+  createCustomTeacherOrder,
   createTeacherOrder,
   getDevicesByMerchantId,
   getMerchantOptions,
   getTeacherDeviceUsageLogs,
   getProjectCategories,
   getTeacherBindings,
+  manualRefreshDevice,
   MerchantDevice,
   MerchantOption,
   ProjectCategory,
@@ -15,26 +17,27 @@ import {
   TeacherOrderPayload,
   UsageRecord,
 } from '../lib/api';
+import { formatDateTime } from '../lib/formatDateTime';
+import {
+  CUSTOM_ORDER_CATEGORY_NAME,
+  CUSTOM_PROJECT_NAME,
+  isCustomOrderCategory,
+  isFixedDurationCategory,
+  parseDurationMinutesInput,
+  parseUsageCountInput,
+} from '../lib/orderConstraints';
 
 type TeacherTab = 'order' | 'bind' | 'bound';
 
-function formatDateTime(value: string): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mi = String(date.getMinutes()).padStart(2, '0');
-  const ss = String(date.getSeconds()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
-
-type OrderFormState = Omit<TeacherOrderPayload, 'merchantId' | 'projectName' | 'age' | 'height' | 'weight'> & {
+type OrderFormState = Omit<
+  TeacherOrderPayload,
+  'merchantId' | 'projectName' | 'age' | 'height' | 'weight' | 'usageCount' | 'durationMinutes'
+> & {
   age: number | '';
   height: number | '';
   weight: number | '';
+  usageCount: number | '';
+  durationMinutes: number | '';
 };
 
 const defaultOrderForm: OrderFormState = {
@@ -71,6 +74,7 @@ export default function TeacherWorkbench() {
   const [bindDeviceId, setBindDeviceId] = useState('');
   const [bindDevices, setBindDevices] = useState<MerchantDevice[]>([]);
   const [selectedProject, setSelectedProject] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [showOrderDetail, setShowOrderDetail] = useState(false);
   const [orderForm, setOrderForm] = useState(defaultOrderForm);
   const [message, setMessage] = useState('');
@@ -78,6 +82,7 @@ export default function TeacherWorkbench() {
   const [activeBindingId, setActiveBindingId] = useState('');
   const [usageLogsByDevice, setUsageLogsByDevice] = useState<Record<string, UsageRecord[]>>({});
   const [usageLogsLoadingDeviceId, setUsageLogsLoadingDeviceId] = useState('');
+  const [refreshingDeviceId, setRefreshingDeviceId] = useState('');
 
   useEffect(() => {
     if (!message) return;
@@ -87,6 +92,18 @@ export default function TeacherWorkbench() {
 
   const filteredOrderMerchants = useMemo(() => orderMerchantOptions, [orderMerchantOptions]);
   const filteredBindMerchants = useMemo(() => bindMerchantOptions, [bindMerchantOptions]);
+  const visibleProjectCategories = useMemo(
+    () => projectCategories.filter((category) => category.categoryName !== CUSTOM_ORDER_CATEGORY_NAME),
+    [projectCategories]
+  );
+
+  const openCustomOrderDetail = () => {
+    setSelectedProject(CUSTOM_PROJECT_NAME);
+    setSelectedCategory(CUSTOM_ORDER_CATEGORY_NAME);
+    setOrderForm((prev) => ({ ...prev, durationMinutes: 1, usageCount: 1 }));
+    setShowOrderDetail(true);
+    setMessage('');
+  };
 
   const selectedOrderMerchantName = useMemo(
     () =>
@@ -326,17 +343,38 @@ export default function TeacherWorkbench() {
       setMessage('请填写年龄、身高和体重');
       return;
     }
+    if (orderForm.usageCount === '' || orderForm.usageCount < 1) {
+      setMessage('请填写有效的使用次数');
+      return;
+    }
+    if (isCustomOrderCategory(selectedCategory)) {
+      if (orderForm.usageCount > 127) {
+        setMessage('自定义下单使用次数不能超过 127');
+        return;
+      }
+      if (
+        orderForm.durationMinutes === '' ||
+        orderForm.durationMinutes < 1 ||
+        orderForm.durationMinutes > 255
+      ) {
+        setMessage('请填写有效的项目时长（1-255 分钟）');
+        return;
+      }
+    }
 
-    const payload: TeacherOrderPayload = {
+    const orderPayload = {
       ...orderForm,
       age: orderForm.age,
       height: orderForm.height,
       weight: orderForm.weight,
+      usageCount: orderForm.usageCount,
+      durationMinutes: orderForm.durationMinutes,
       merchantId: orderMerchantId,
-      projectName: selectedProject,
     };
 
-    const result = await createTeacherOrder(payload);
+    const result = isCustomOrderCategory(selectedCategory)
+      ? await createCustomTeacherOrder(orderPayload)
+      : await createTeacherOrder({ ...orderPayload, projectName: selectedProject });
     if (String(result.code) !== '200' && String(result.code) !== '0') {
       setMessage(result.msg || '下单失败');
       return;
@@ -348,6 +386,7 @@ export default function TeacherWorkbench() {
         : '下单成功';
     setShowOrderDetail(false);
     setSelectedProject('');
+    setSelectedCategory('');
     setOrderForm(defaultOrderForm);
     setMessage(createdMsg);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -378,9 +417,26 @@ export default function TeacherWorkbench() {
     await loadTeacherBindings();
   };
 
+  const handleManualRefresh = async (deviceId: string) => {
+    setRefreshingDeviceId(deviceId);
+    try {
+      const result = await manualRefreshDevice(Number(deviceId));
+      if (String(result.code) === '200' || String(result.code) === '0') {
+        setMessage('时间已清零，可重新下单');
+      } else {
+        setMessage(result.msg || '时间清零失败');
+      }
+    } catch {
+      setMessage('时间清零失败');
+    } finally {
+      setRefreshingDeviceId('');
+    }
+  };
+
   const handleToggleBindingLogs = async (binding: TeacherBinding) => {
     if (activeBindingId === binding.id) {
       setActiveBindingId('');
+      setUsageLogsLoadingDeviceId('');
       return;
     }
     setActiveBindingId(binding.id);
@@ -390,16 +446,29 @@ export default function TeacherWorkbench() {
     }
 
     setUsageLogsLoadingDeviceId(binding.deviceId);
-    const logsRes = await getTeacherDeviceUsageLogs(binding.deviceId);
-    if (String(logsRes.code) === '200') {
+    try {
+      const logsRes = await getTeacherDeviceUsageLogs(binding.deviceId);
+      if (String(logsRes.code) === '200' || String(logsRes.code) === '0') {
+        setUsageLogsByDevice((prev) => ({
+          ...prev,
+          [binding.deviceId]: logsRes.data ?? [],
+        }));
+      } else {
+        setUsageLogsByDevice((prev) => ({
+          ...prev,
+          [binding.deviceId]: [],
+        }));
+        setMessage(logsRes.msg || '获取使用流水失败');
+      }
+    } catch {
       setUsageLogsByDevice((prev) => ({
         ...prev,
-        [binding.deviceId]: logsRes.data,
+        [binding.deviceId]: [],
       }));
-    } else {
-      setMessage(logsRes.msg || '获取使用流水失败');
+      setMessage('获取使用流水失败，请检查网络或接口地址');
+    } finally {
+      setUsageLogsLoadingDeviceId('');
     }
-    setUsageLogsLoadingDeviceId('');
   };
 
   return (
@@ -463,7 +532,16 @@ export default function TeacherWorkbench() {
       {activeTab === 'order' && (
         <div className="space-y-3">
           {!showOrderDetail ? (
-            projectCategories.map((category) => (
+            <>
+            <button
+              type="button"
+              onClick={openCustomOrderDetail}
+              className="w-full rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 p-4 shadow-sm text-left hover:border-violet-300 hover:from-violet-100 hover:to-indigo-100 transition-all"
+            >
+              <p className="text-sm font-semibold text-violet-800">自定义下单</p>
+              <p className="text-xs text-violet-600 mt-1">自定义项目时长（1-255 分钟），项目固定为「自定义选择」</p>
+            </button>
+            {visibleProjectCategories.map((category) => (
               <div key={category.categoryName} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm font-semibold text-slate-800">{category.categoryName}</p>
@@ -476,6 +554,8 @@ export default function TeacherWorkbench() {
                       type="button"
                       onClick={() => {
                         setSelectedProject(project.name);
+                        setSelectedCategory(category.categoryName);
+                        setOrderForm((prev) => ({ ...prev, durationMinutes: 45, usageCount: 1 }));
                         setShowOrderDetail(true);
                         setMessage('');
                       }}
@@ -486,11 +566,14 @@ export default function TeacherWorkbench() {
                   ))}
                 </div>
               </div>
-            ))
+            ))}
+            </>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-sm">
               <div className="flex items-center justify-between">
-                <p className="text-base font-semibold text-slate-800">下单详情</p>
+                <p className="text-base font-semibold text-slate-800">
+                  {isCustomOrderCategory(selectedCategory) ? '自定义下单' : '下单详情'}
+                </p>
               </div>
 
               <label className="block text-xs text-slate-500 mb-1">用户姓名</label>
@@ -580,25 +663,67 @@ export default function TeacherWorkbench() {
                 className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 font-medium"
               />
 
-              <label className="block text-xs text-slate-500 mb-1">项目时长(分钟)</label>
-              <input
-                type="number"
-                value={orderForm.durationMinutes}
-                onChange={(e) => setOrderForm((prev) => ({ ...prev, durationMinutes: Number(e.target.value) || 45 }))}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-              />
+              <label className="block text-xs text-slate-500 mb-1">
+                项目时长(分钟)
+                {isCustomOrderCategory(selectedCategory) && (
+                  <span className="text-slate-400">（1-255）</span>
+                )}
+              </label>
+              {isCustomOrderCategory(selectedCategory) ? (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={orderForm.durationMinutes === '' ? '' : orderForm.durationMinutes}
+                  onChange={(e) => {
+                    const parsed = parseDurationMinutesInput(e.target.value);
+                    if (parsed !== '' && parsed > 255) {
+                      setOrderForm((prev) => ({ ...prev, durationMinutes: 255 }));
+                      return;
+                    }
+                    setOrderForm((prev) => ({ ...prev, durationMinutes: parsed }));
+                  }}
+                  placeholder="请输入项目时长"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                />
+              ) : (
+                <input
+                  type="number"
+                  value={orderForm.durationMinutes === '' ? '' : orderForm.durationMinutes}
+                  readOnly={isFixedDurationCategory(selectedCategory)}
+                  onChange={(e) => {
+                    if (isFixedDurationCategory(selectedCategory)) return;
+                    setOrderForm((prev) => ({
+                      ...prev,
+                      durationMinutes: Number(e.target.value) || 45,
+                    }));
+                  }}
+                  className={`w-full rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 ${
+                    isFixedDurationCategory(selectedCategory)
+                      ? 'border-blue-200 bg-blue-50 text-blue-800'
+                      : 'border-slate-200'
+                  }`}
+                />
+              )}
 
-              <label className="block text-xs text-slate-500 mb-1">使用次数</label>
+              <label className="block text-xs text-slate-500 mb-1">
+                使用次数
+                {isCustomOrderCategory(selectedCategory) && (
+                  <span className="text-slate-400">（1-127）</span>
+                )}
+              </label>
               <input
-                type="number"
-                min={1}
-                value={orderForm.usageCount}
-                onChange={(e) =>
-                  setOrderForm((prev) => ({
-                    ...prev,
-                    usageCount: Math.max(1, Number(e.target.value) || 1),
-                  }))
-                }
+                type="text"
+                inputMode="numeric"
+                value={orderForm.usageCount === '' ? '' : orderForm.usageCount}
+                onChange={(e) => {
+                  const parsed = parseUsageCountInput(e.target.value);
+                  if (isCustomOrderCategory(selectedCategory) && parsed !== '' && parsed > 127) {
+                    setOrderForm((prev) => ({ ...prev, usageCount: 127 }));
+                    return;
+                  }
+                  setOrderForm((prev) => ({ ...prev, usageCount: parsed }));
+                }}
+                placeholder="请输入使用次数"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               />
 
@@ -649,7 +774,10 @@ export default function TeacherWorkbench() {
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setShowOrderDetail(false)}
+                  onClick={() => {
+                    setShowOrderDetail(false);
+                    setSelectedCategory('');
+                  }}
                   className="rounded-xl py-2 text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200"
                 >
                   返回选项目
@@ -780,19 +908,31 @@ export default function TeacherWorkbench() {
           ) : (
             bindings.map((item) => (
               <div key={item.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => handleToggleBindingLogs(item)}
-                  className="w-full text-left"
-                >
-                  <p className="text-sm text-slate-800 font-medium">{item.merchantName}</p>
-                  <p className="text-sm text-slate-700 mt-1">{item.deviceName}</p>
-                  <p className="mt-2 text-xs text-slate-600">使用次数：{item.usageCount}</p>
-                  <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                    <span>设备编号：{item.deviceId}</span>
-                    <span>{formatDateTime(item.boundAt)}</span>
-                  </div>
-                </button>
+                <div className="flex items-start justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleBindingLogs(item)}
+                    className="flex-1 min-w-0 text-left rounded-lg bg-transparent p-0 shadow-none hover:bg-transparent active:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 [-webkit-tap-highlight-color:transparent]"
+                  >
+                    <p className="text-sm text-slate-800 font-medium">{item.merchantName}</p>
+                    <p className="text-sm text-slate-700 mt-1">{item.deviceName}</p>
+                    <p className="mt-2 text-xs text-slate-600">使用次数：{item.usageCount}</p>
+                    <div className="mt-1 flex items-center justify-between text-xs text-slate-500 gap-2">
+                      <span>设备编号：{item.deviceId}</span>
+                      <span>{formatDateTime(item.boundAt)}</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={refreshingDeviceId === item.deviceId}
+                    onClick={() => {
+                      void handleManualRefresh(item.deviceId);
+                    }}
+                    className="shrink-0 whitespace-nowrap rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+                  >
+                    {refreshingDeviceId === item.deviceId ? '清零中...' : '时间清零'}
+                  </button>
+                </div>
 
                 {activeBindingId === item.id && (
                   <div className="mt-3 rounded-xl border border-slate-200 overflow-hidden">
@@ -817,7 +957,7 @@ export default function TeacherWorkbench() {
                           <tbody>
                             {(usageLogsByDevice[item.deviceId] || []).map((log) => (
                               <tr key={log.id} className="border-t border-slate-100 text-slate-700">
-                                <td className="px-3 py-2 whitespace-nowrap">{log.usedAt}</td>
+                                <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(log.usedAt)}</td>
                                 <td className="px-3 py-2 whitespace-nowrap">{log.userPhone}</td>
                                 <td className="px-3 py-2">{log.projectName}</td>
                                 <td className="px-3 py-2">{log.merchantName}</td>

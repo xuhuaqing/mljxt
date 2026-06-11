@@ -1,3 +1,4 @@
+import { formatDateTime } from './formatDateTime';
 import { UserRole } from './supabase';
 
 export interface ApiResponse<T> {
@@ -80,6 +81,8 @@ interface UsageRecordQueryRaw {
   userPhone?: string;
   phone?: string;
   merchantId: number;
+  deviceId?: number | string;
+  machineNo?: string;
   deviceName: string | null;
   projectName: string;
   projectDuration: number;
@@ -112,6 +115,10 @@ export interface TeacherOrderPayload {
   durationMinutes: number;
   merchantId: string;
 }
+
+export type CustomTeacherOrderPayload = Omit<TeacherOrderPayload, 'projectName'> & {
+  deviceId?: string;
+};
 
 export interface CreateOrderResult {
   orderId: number;
@@ -338,6 +345,10 @@ const mockProjectCategories: ProjectCategory[] = [
       { code: 24, codeHex: '0x18', name: '协调敏捷训练' },
       { code: 25, codeHex: '0x19', name: '稳定柔韧训练' },
     ],
+  },
+  {
+    categoryName: '自定义',
+    projects: [{ code: 0, codeHex: '0x00', name: '自定义选择' }],
   },
 ];
 
@@ -612,9 +623,9 @@ export async function getUsageRecords(params?: {
           userPhone: item.userPhone || item.phone || '',
           merchantName: '',
           projectName: item.projectName,
-          deviceId: '',
+          deviceId: item.deviceId != null ? String(item.deviceId) : '',
           deviceName: item.deviceName || '',
-          usedAt: item.createdAt,
+          usedAt: formatDateTime(item.createdAt),
         }))
       : [],
   };
@@ -662,17 +673,25 @@ export async function useInstrument(payload: {
     };
   }
 
-  const requestBody: { orderId: number; deviceId?: number; machineNo?: number } = {
-    orderId: Number(payload.orderId),
-  };
-  if (payload.deviceId && Number(payload.deviceId) > 0) {
-    requestBody.deviceId = Number(payload.deviceId);
-  }
-  if (payload.machineNo && Number(payload.machineNo) >= 0) {
-    requestBody.machineNo = Number(payload.machineNo);
+  const machineNo = payload.machineNo?.trim();
+  if (!machineNo) {
+    return {
+      code: '400',
+      msg: '请传machineNo，订单未绑定设备',
+      data: { remainingCount: 0 },
+    };
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/hardware/send-by-order`, {
+  const requestBody = {
+    orderId: Number(payload.orderId),
+    machineNo,
+  };
+  const requestUrl = `${API_BASE_URL}/api/hardware/send-by-order`;
+  console.log('[useInstrument] POST', requestUrl);
+  console.log('[useInstrument] requestBody:', JSON.stringify(requestBody));
+  console.log('[useInstrument] machineNo 类型:', typeof machineNo, '值:', machineNo);
+
+  const response = await fetch(requestUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -734,6 +753,57 @@ export async function createTeacherOrder(payload: TeacherOrderPayload): Promise<
   };
 
   const response = await fetch(`${API_BASE_URL}/api/order/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+  });
+  return (await response.json()) as ApiResponse<CreateOrderResult>;
+}
+
+export async function createCustomTeacherOrder(
+  payload: CustomTeacherOrderPayload
+): Promise<ApiResponse<CreateOrderResult>> {
+  if (USE_MOCK_API) {
+    if (!payload.name.trim()) {
+      return { code: '400', msg: '用户姓名不能为空', data: null as unknown as CreateOrderResult };
+    }
+    const orderId = Date.now();
+    return {
+      code: '0',
+      msg: 'success',
+      data: {
+        orderId,
+        userId: 1001,
+        phone: payload.phone,
+        merchantId: Number(payload.merchantId) || 0,
+        projectName: '自定义选择',
+        projectDuration: payload.durationMinutes,
+        usageCount: payload.usageCount,
+        newUserCreated: false,
+        initialPassword: null,
+      },
+    };
+  }
+
+  const requestBody: Record<string, number | string> = {
+    phone: payload.phone,
+    name: payload.name.trim(),
+    gender: payload.gender === '男' ? 0 : 1,
+    age: payload.age,
+    height: payload.height,
+    weight: payload.weight,
+    sportPerformance: payload.exercisePerformance,
+    projectDuration: payload.durationMinutes,
+    merchantId: Number(payload.merchantId),
+    usageCount: payload.usageCount,
+  };
+  if (payload.deviceId && Number(payload.deviceId) > 0) {
+    requestBody.deviceId = Number(payload.deviceId);
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/order/create-custom`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -833,7 +903,7 @@ export async function getTeacherBindings(teacherId: number, merchantId?: number)
           deviceId: String(item.deviceId),
           deviceName: item.deviceName || item.machineNo,
           usageCount: 0,
-          boundAt: item.bindTime,
+          boundAt: formatDateTime(item.bindTime),
         }))
       : [],
   };
@@ -845,8 +915,21 @@ export async function getTeacherDeviceUsageLogs(deviceId: string): Promise<ApiRe
     return { code: 200, msg: 'ok', data };
   }
 
-  const response = await fetch(`${API_BASE_URL}/mljxt/teacher/device-usage-logs?deviceId=${encodeURIComponent(deviceId)}`);
-  return (await response.json()) as ApiResponse<UsageRecord[]>;
+  const result = await getMerchantOrderConsumeRecords({
+    deviceId,
+    pageNo: 1,
+    pageSize: 100,
+  });
+
+  if (String(result.code) !== '0' && String(result.code) !== '200') {
+    return { code: result.code, msg: result.msg || '获取使用流水失败', data: [] };
+  }
+
+  return {
+    code: result.code,
+    msg: result.msg || 'success',
+    data: result.data.records,
+  };
 }
 
 export async function getDevicesByMerchantId(merchantId: string): Promise<ApiResponse<MerchantDevice[]>> {
@@ -867,12 +950,11 @@ export async function getDevicesByMerchantId(merchantId: string): Promise<ApiRes
   return {
     ...result,
     data: Array.isArray(result.data)
-      ? result.data
-          .map((item) => ({
-            id: String(item.id),
-            name: item.deviceName || item.machineNo,
-            machineNo: item.machineNo,
-          }))
+      ? result.data.map((item) => ({
+          id: String(item.id),
+          name: item.deviceName || String(item.machineNo ?? ''),
+          machineNo: item.machineNo != null ? String(item.machineNo) : undefined,
+        }))
       : [],
   };
 }
@@ -897,7 +979,7 @@ export async function getMerchantDevices(merchantId: string): Promise<ApiRespons
       ? result.data.map((item) => ({
           deviceId: String(item.id),
           deviceName: item.deviceName || item.machineNo,
-          freeExpireAt: item.freeUseDeadline || '-',
+          freeExpireAt: formatDateTime(item.freeUseDeadline || '-'),
         }))
       : [],
   };
@@ -986,7 +1068,7 @@ export async function getMerchantOrderConsumeRecords(params: {
       projectName: item.projectName || '',
       deviceId: String(item.deviceId ?? ''),
       deviceName: item.deviceName || item.machineNo || String(item.deviceId ?? ''),
-      usedAt: item.usedAt || item.createdAt || item.createTime || '',
+      usedAt: formatDateTime(item.usedAt || item.createdAt || item.createTime || ''),
     }));
   const total = pageData?.total ?? pageData?.totalCount ?? rawRecords.length;
   const resolvedPageNo = pageData?.pageNo ?? pageData?.pageNum ?? pageNo;
@@ -1024,7 +1106,7 @@ export async function getDeveloperDevices(developerId: string): Promise<ApiRespo
           merchantName: item.merchantName,
           deviceId: String(item.deviceId),
           deviceName: item.deviceName || item.machineNo,
-          freeExpireAt: item.freeUseDeadline || '-',
+          freeExpireAt: formatDateTime(item.freeUseDeadline || '-'),
           merchantUsageCount: item.merchantTotalDeviceUsageCount ?? 0,
         }))
       : [],
@@ -1093,7 +1175,7 @@ export async function getWithdrawRecords(params: {
           pageSize: result.data.pageSize ?? pageSize,
           records: (result.data.records || []).map((item) => ({
             id: String(item.withdrawRecordId),
-            clickedAt: item.createdAt,
+            clickedAt: formatDateTime(item.createdAt),
             usageCount: item.usageCountSnapshot,
           })),
         }
@@ -1105,7 +1187,7 @@ export async function createWithdraw(developerId: string): Promise<ApiResponse<W
   if (USE_MOCK_API) {
     const record: WithdrawRecord = {
       id: `w-${Date.now()}`,
-      clickedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+      clickedAt: formatDateTime(new Date().toISOString()),
       usageCount: mockUsageRecords.length,
     };
     mockWithdrawRecords = [record, ...mockWithdrawRecords];
@@ -1130,7 +1212,7 @@ export async function createWithdraw(developerId: string): Promise<ApiResponse<W
     data: result.data
       ? {
           id: String(result.data.withdrawRecordId),
-          clickedAt: result.data.createdAt,
+          clickedAt: formatDateTime(result.data.createdAt),
           usageCount: result.data.usageCountSnapshot,
         }
       : { id: '', clickedAt: '', usageCount: 0 },

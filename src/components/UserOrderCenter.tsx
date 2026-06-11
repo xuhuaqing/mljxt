@@ -10,6 +10,7 @@ import {
   UsageRecord,
   UserOrder,
 } from '../lib/api';
+import { formatDateTime } from '../lib/formatDateTime';
 
 export default function UserOrderCenter() {
   const currentUserPhone = window.localStorage.getItem('currentUserPhone') || '';
@@ -153,11 +154,21 @@ export default function UserOrderCenter() {
       setActionMessage('请先选择设备');
       return;
     }
+    if (!selectedDevice.machineNo?.trim()) {
+      setActionMessage('所选设备缺少 machineNo，无法使用仪器');
+      return;
+    }
 
     try {
+      console.log('[使用仪器] 页面上下文:', {
+        orderId,
+        selectedMerchantId,
+        selectedDeviceId: selectedDevice.id,
+        deviceName: selectedDevice.name,
+        machineNo: selectedDevice.machineNo,
+      });
       const useRes = await useInstrument({
         orderId,
-        deviceId: selectedDevice.id,
         machineNo: selectedDevice.machineNo,
       });
       const wrappedCode = (useRes as { code?: string | number }).code;
@@ -315,9 +326,10 @@ export default function UserOrderCenter() {
                 <p className="text-sm text-slate-500">商家：{record.merchantName}</p>
                 <p className="text-sm text-slate-700 mt-1">项目：{record.projectName}</p>
                 <p className="text-sm text-slate-700 mt-1">
-                  设备：{record.deviceName}（{record.deviceId}）
+                  设备：{record.deviceName || '—'}
+                  {record.deviceId ? `（${record.deviceId}）` : ''}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">使用时间：{record.usedAt}</p>
+                <p className="text-xs text-slate-500 mt-1">使用时间：{formatDateTime(record.usedAt)}</p>
               </div>
             ))
           )}
