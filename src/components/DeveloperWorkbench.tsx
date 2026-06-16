@@ -159,7 +159,9 @@ export default function DeveloperWorkbench() {
             Object.values(groupedDevices).map((merchantDevices) => {
               const merchantName = merchantDevices[0]?.merchantName || '未知店铺';
               const merchantId = merchantDevices[0]?.merchantId || 'unknown';
-              const merchantUsageCount = merchantDevices[0]?.merchantUsageCount ?? 0;
+              const merchantUsageCount =
+                merchantDevices[0]?.merchantUsageCount ??
+                merchantDevices.reduce((sum, device) => sum + device.deviceUsageCount, 0);
               return (
                 <div key={merchantId} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -174,6 +176,8 @@ export default function DeveloperWorkbench() {
                         <p className="text-sm text-slate-800 font-medium">{device.deviceName}</p>
                         <p className="text-xs text-slate-500 mt-1">设备编号：{device.deviceId}</p>
                         <p className="text-xs text-slate-500 mt-1">免费到期时间：{formatDateTime(device.freeExpireAt)}</p>
+                        <p className="text-xs text-slate-600 mt-2">免费期使用：{device.deviceFreeUsageCount}</p>
+                        <p className="text-xs text-slate-600 mt-1">非免费期使用：{device.deviceNonFreeUsageCount}</p>
                       </div>
                     ))}
                   </div>

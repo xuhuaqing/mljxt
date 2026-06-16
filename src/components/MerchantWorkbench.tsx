@@ -14,7 +14,7 @@ import {
   TeacherOrderPayload,
   UsageRecord,
 } from '../lib/api';
-import { formatDateTime } from '../lib/formatDateTime';
+import { formatDateTime, formatFreeUsage } from '../lib/formatDateTime';
 import {
   isFixedDurationCategory,
   MERCHANT_HIDDEN_CATEGORY_NAMES,
@@ -414,6 +414,7 @@ export default function MerchantWorkbench() {
                     <p className="text-xs text-slate-600 mt-1">用户：{record.userPhone}</p>
                     <p className="text-xs text-slate-600 mt-1">设备：{record.deviceName}</p>
                     <p className="text-xs text-slate-500 mt-1">下单时间：{formatDateTime(record.usedAt)}</p>
+                    <p className="text-xs text-slate-500 mt-1">免费使用：{formatFreeUsage(record.freeUsage)}</p>
                   </div>
                 ))}
               </div>
@@ -426,6 +427,7 @@ export default function MerchantWorkbench() {
                       <th className="px-3 py-2 text-left font-medium">用户手机号</th>
                       <th className="px-3 py-2 text-left font-medium">项目</th>
                       <th className="px-3 py-2 text-left font-medium">设备</th>
+                      <th className="px-3 py-2 text-left font-medium">免费使用</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -435,6 +437,7 @@ export default function MerchantWorkbench() {
                         <td className="px-3 py-2 whitespace-nowrap">{record.userPhone}</td>
                         <td className="px-3 py-2">{record.projectName}</td>
                         <td className="px-3 py-2">{record.deviceName}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{formatFreeUsage(record.freeUsage)}</td>
                       </tr>
                     ))}
                   </tbody>

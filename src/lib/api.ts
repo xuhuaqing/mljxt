@@ -36,6 +36,9 @@ interface DeveloperBoundDeviceRaw {
   merchantPhone: string;
   remainingUseCount: number;
   merchantTotalDeviceUsageCount?: number;
+  deviceUsageCount?: number;
+  deviceFreeUsageCount?: number;
+  deviceNonFreeUsageCount?: number;
   deviceId: number;
   machineNo: string;
   deviceName: string;
@@ -73,6 +76,7 @@ export interface UsageRecord {
   deviceId: string;
   deviceName: string;
   usedAt: string;
+  freeUsage?: boolean;
 }
 
 interface UsageRecordQueryRaw {
@@ -89,6 +93,7 @@ interface UsageRecordQueryRaw {
   usageCount: number;
   sportPerformance: number;
   createdAt: string;
+  freeUsage?: boolean;
 }
 
 export interface ProjectCategory {
@@ -171,6 +176,7 @@ interface OrderUsageRecordRaw {
   createdAt?: string;
   createTime?: string;
   usedAt?: string;
+  freeUsage?: boolean;
 }
 
 interface OrderUsageRecordPageData {
@@ -196,6 +202,9 @@ export interface DeveloperDeviceSummary extends MerchantDeviceSummary {
   merchantId: string;
   merchantName: string;
   merchantUsageCount: number;
+  deviceUsageCount: number;
+  deviceFreeUsageCount: number;
+  deviceNonFreeUsageCount: number;
 }
 
 export interface WithdrawRecord {
@@ -282,6 +291,7 @@ let mockUsageRecords: UsageRecord[] = [
     deviceId: 'dev-a-01',
     deviceName: '超声美容仪A01',
     usedAt: '2026/04/18 10:30:00',
+    freeUsage: true,
   },
   {
     id: 'u2',
@@ -292,6 +302,7 @@ let mockUsageRecords: UsageRecord[] = [
     deviceId: 'dev-a-02',
     deviceName: '射频美容仪A02',
     usedAt: '2026/04/19 14:10:00',
+    freeUsage: false,
   },
   {
     id: 'u3',
@@ -302,6 +313,7 @@ let mockUsageRecords: UsageRecord[] = [
     deviceId: 'dev-b-01',
     deviceName: '光子美容仪B01',
     usedAt: '2026/04/20 16:45:00',
+    freeUsage: false,
   },
 ];
 
@@ -387,6 +399,9 @@ const mockDeveloperDevices: DeveloperDeviceSummary[] = [
     deviceName: '超声美容仪A01',
     freeExpireAt: '2026/12/31',
     merchantUsageCount: 186,
+    deviceUsageCount: 120,
+    deviceFreeUsageCount: 45,
+    deviceNonFreeUsageCount: 75,
   },
   {
     merchantId: 'm1',
@@ -395,6 +410,9 @@ const mockDeveloperDevices: DeveloperDeviceSummary[] = [
     deviceName: '射频美容仪A02',
     freeExpireAt: '2026/10/15',
     merchantUsageCount: 186,
+    deviceUsageCount: 66,
+    deviceFreeUsageCount: 20,
+    deviceNonFreeUsageCount: 46,
   },
   {
     merchantId: 'm2',
@@ -403,6 +421,9 @@ const mockDeveloperDevices: DeveloperDeviceSummary[] = [
     deviceName: '光子美容仪B01',
     freeExpireAt: '2026/11/30',
     merchantUsageCount: 132,
+    deviceUsageCount: 80,
+    deviceFreeUsageCount: 30,
+    deviceNonFreeUsageCount: 50,
   },
   {
     merchantId: 'm2',
@@ -411,6 +432,9 @@ const mockDeveloperDevices: DeveloperDeviceSummary[] = [
     deviceName: '微电流美容仪B02',
     freeExpireAt: '2026/09/08',
     merchantUsageCount: 132,
+    deviceUsageCount: 52,
+    deviceFreeUsageCount: 12,
+    deviceNonFreeUsageCount: 40,
   },
 ];
 
@@ -626,6 +650,7 @@ export async function getUsageRecords(params?: {
           deviceId: item.deviceId != null ? String(item.deviceId) : '',
           deviceName: item.deviceName || '',
           usedAt: formatDateTime(item.createdAt),
+          freeUsage: item.freeUsage,
         }))
       : [],
   };
@@ -662,6 +687,7 @@ export async function useInstrument(payload: {
         deviceId: device?.id || '',
         deviceName: device?.name || '',
         usedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+        freeUsage: false,
       },
       ...mockUsageRecords,
     ];
@@ -1069,6 +1095,7 @@ export async function getMerchantOrderConsumeRecords(params: {
       deviceId: String(item.deviceId ?? ''),
       deviceName: item.deviceName || item.machineNo || String(item.deviceId ?? ''),
       usedAt: formatDateTime(item.usedAt || item.createdAt || item.createTime || ''),
+      freeUsage: item.freeUsage,
     }));
   const total = pageData?.total ?? pageData?.totalCount ?? rawRecords.length;
   const resolvedPageNo = pageData?.pageNo ?? pageData?.pageNum ?? pageNo;
@@ -1108,6 +1135,9 @@ export async function getDeveloperDevices(developerId: string): Promise<ApiRespo
           deviceName: item.deviceName || item.machineNo,
           freeExpireAt: formatDateTime(item.freeUseDeadline || '-'),
           merchantUsageCount: item.merchantTotalDeviceUsageCount ?? 0,
+          deviceUsageCount: item.deviceUsageCount ?? 0,
+          deviceFreeUsageCount: item.deviceFreeUsageCount ?? 0,
+          deviceNonFreeUsageCount: item.deviceNonFreeUsageCount ?? 0,
         }))
       : [],
   };

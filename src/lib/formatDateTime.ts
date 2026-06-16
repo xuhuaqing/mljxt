@@ -31,3 +31,9 @@ export function formatDateTime(value: string | null | undefined): string {
   const ss = String(date.getSeconds()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
+
+export function formatFreeUsage(value?: boolean): string {
+  if (value === true) return '是';
+  if (value === false) return '否';
+  return '—';
+}

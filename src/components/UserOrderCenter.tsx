@@ -10,7 +10,7 @@ import {
   UsageRecord,
   UserOrder,
 } from '../lib/api';
-import { formatDateTime } from '../lib/formatDateTime';
+import { formatDateTime, formatFreeUsage } from '../lib/formatDateTime';
 
 export default function UserOrderCenter() {
   const currentUserPhone = window.localStorage.getItem('currentUserPhone') || '';
@@ -330,6 +330,7 @@ export default function UserOrderCenter() {
                   {record.deviceId ? `（${record.deviceId}）` : ''}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">使用时间：{formatDateTime(record.usedAt)}</p>
+                <p className="text-xs text-slate-500 mt-1">免费使用：{formatFreeUsage(record.freeUsage)}</p>
               </div>
             ))
           )}

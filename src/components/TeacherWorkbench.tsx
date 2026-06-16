@@ -17,7 +17,7 @@ import {
   TeacherOrderPayload,
   UsageRecord,
 } from '../lib/api';
-import { formatDateTime } from '../lib/formatDateTime';
+import { formatDateTime, formatFreeUsage } from '../lib/formatDateTime';
 import {
   CUSTOM_ORDER_CATEGORY_NAME,
   CUSTOM_PROJECT_NAME,
@@ -952,6 +952,7 @@ export default function TeacherWorkbench() {
                               <th className="px-3 py-2 text-left font-medium">用户手机号</th>
                               <th className="px-3 py-2 text-left font-medium">项目</th>
                               <th className="px-3 py-2 text-left font-medium">商家</th>
+                              <th className="px-3 py-2 text-left font-medium">免费使用</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -961,6 +962,7 @@ export default function TeacherWorkbench() {
                                 <td className="px-3 py-2 whitespace-nowrap">{log.userPhone}</td>
                                 <td className="px-3 py-2">{log.projectName}</td>
                                 <td className="px-3 py-2">{log.merchantName}</td>
+                                <td className="px-3 py-2 whitespace-nowrap">{formatFreeUsage(log.freeUsage)}</td>
                               </tr>
                             ))}
                           </tbody>
