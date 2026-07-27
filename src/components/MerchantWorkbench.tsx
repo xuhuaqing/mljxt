@@ -350,6 +350,8 @@ export default function MerchantWorkbench() {
                     <p className="text-sm text-slate-800 font-medium">{device.deviceName}</p>
                     <p className="text-xs text-slate-500 mt-1">设备编号：{device.deviceId}</p>
                     <p className="text-xs text-slate-500 mt-1">免费到期时间：{formatDateTime(device.freeExpireAt)}</p>
+                    <p className="text-xs text-slate-600 mt-2">免费期使用：{device.deviceFreeUsageCount}</p>
+                    <p className="text-xs text-slate-600 mt-1">非免费期使用：{device.deviceNonFreeUsageCount}</p>
                   </div>
                   <button
                     type="button"

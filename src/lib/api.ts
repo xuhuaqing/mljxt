@@ -26,6 +26,9 @@ interface MerchantDeviceByMerchantRaw {
   status: 0 | 1;
   merchantId: number;
   freeUseDeadline: string | null;
+  deviceUsageCount?: number;
+  deviceFreeUsageCount?: number;
+  deviceNonFreeUsageCount?: number;
 }
 
 interface DeveloperBoundDeviceRaw {
@@ -196,6 +199,8 @@ export interface MerchantDeviceSummary {
   deviceId: string;
   deviceName: string;
   freeExpireAt: string;
+  deviceFreeUsageCount: number;
+  deviceNonFreeUsageCount: number;
 }
 
 export interface DeveloperDeviceSummary extends MerchantDeviceSummary {
@@ -203,8 +208,6 @@ export interface DeveloperDeviceSummary extends MerchantDeviceSummary {
   merchantName: string;
   merchantUsageCount: number;
   deviceUsageCount: number;
-  deviceFreeUsageCount: number;
-  deviceNonFreeUsageCount: number;
 }
 
 export interface WithdrawRecord {
@@ -381,11 +384,15 @@ const mockMerchantOwnedDevices: MerchantDeviceSummary[] = [
     deviceId: 'dev-a-01',
     deviceName: '超声美容仪A01',
     freeExpireAt: '2026/12/31',
+    deviceFreeUsageCount: 45,
+    deviceNonFreeUsageCount: 75,
   },
   {
     deviceId: 'dev-a-02',
     deviceName: '射频美容仪A02',
     freeExpireAt: '2026/10/15',
+    deviceFreeUsageCount: 20,
+    deviceNonFreeUsageCount: 46,
   },
 ];
 
@@ -1006,6 +1013,8 @@ export async function getMerchantDevices(merchantId: string): Promise<ApiRespons
           deviceId: String(item.id),
           deviceName: item.deviceName || item.machineNo,
           freeExpireAt: formatDateTime(item.freeUseDeadline || '-'),
+          deviceFreeUsageCount: item.deviceFreeUsageCount ?? 0,
+          deviceNonFreeUsageCount: item.deviceNonFreeUsageCount ?? 0,
         }))
       : [],
   };
